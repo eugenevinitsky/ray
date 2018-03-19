@@ -68,10 +68,12 @@ class ProximalPolicyLoss(object):
         self.surr = [tf.minimum(surr1_i, surr2_i) for surr1_i, surr2_i
                      in zip(self.surr1, self.surr2)]
         self.mean_policy_loss = tf.reduce_mean(-tf.add_n(self.surr))
-        self.surr = tf.add_n(self.surr)
+        #self.surr = tf.add_n(self.surr)
+        self.surr = self.surr[0]
         self.entropy = tf.add_n(self.entropy)
-        kl_prod = tf.add_n([kl_coeff[i] * prev_kl for
-                            i, prev_kl in enumerate(self.kl)])
+        # kl_prod = tf.add_n([kl_coeff[i] * prev_kl for
+        #                     i, prev_kl in enumerate(self.kl)])
+        kl_prod = kl_coeff[0] * self.kl[0]
 
         if config["use_gae"]:
             # We use a huber loss here to be more robust against outliers,
