@@ -56,7 +56,7 @@ class ProximalPolicyLoss(object):
 
         self.ratio = np.asarray([tf.exp(a - b) for a, b
                                  in zip(curr_logp, prev_logp)])
-        self.mean_kl = [tf.reduce_mean(mean_kl_i) for mean_kl_i in self.kl]
+        self.mean_kl = [tf.reduce_mean(kl_i) for kl_i in self.kl]
         self.mean_entropy = [tf.reduce_mean(entropy_i)
                              for entropy_i in self.entropy]
         self.surr1 = [ratio_i * advantages for ratio_i in self.ratio]

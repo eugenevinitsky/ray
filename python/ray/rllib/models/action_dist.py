@@ -135,10 +135,10 @@ class MultiActionDistribution(ActionDistribution):
             # Remove extra categorical dimension
             if isinstance(distribution, Categorical):
                 split_list[i] = tf.squeeze(split_list[i], axis=-1)
-        log_list = np.asarray([distribution.logp(split_x) for
+        log_list = [distribution.logp(split_x) for
                                distribution, split_x in
-                               zip(self.child_distributions, split_list)])
-        return log_list.tolist()
+                               zip(self.child_distributions, split_list)]
+        return log_list
 
     def kl(self, other):
         """The KL-divergence between two action distributions."""
