@@ -97,7 +97,7 @@ class PPOAgent(Agent):
         self.num_agents = len(self.config["model"].get(
             "custom_options", {}).get("multiagent_obs_shapes", [1]))
         self.global_step = 0
-        self.kl_coeff = [self.config["kl_coeff"]] * self.num_agents
+        self.kl_coeff = self.config["kl_coeff"]
         self.local_evaluator = PPOEvaluator(
             self.registry, self.env_creator, self.config, self.logdir, False)
         RemotePPOEvaluator = ray.remote(
@@ -197,7 +197,7 @@ class PPOAgent(Agent):
                 metric_prefix = "ppo/sgd/final_iter/"
                 values.append(tf.Summary.Value(
                     tag=metric_prefix + "kl_coeff",
-                    simple_value=self.kl_coeff[0]))
+                    simple_value=self.kl_coeff))
                 values.extend([
                     tf.Summary.Value(
                         tag=metric_prefix + "mean_entropy",
@@ -219,9 +219,10 @@ class PPOAgent(Agent):
 
         for i, kl_i in enumerate(kl):
             if kl_i > 2.0 * config["kl_target"]:
-                self.kl_coeff[i] *= 1.5
+                self.kl_coeff *= 1.5
             elif kl_i < 0.5 * config["kl_target"]:
-                self.kl_coeff[i] *= 0.5
+                self.kl_coeff *= 0.5
+
 
         print('kl is', kl)
         print('kl coeff is', self.kl_coeff)

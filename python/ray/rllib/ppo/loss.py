@@ -70,8 +70,7 @@ class ProximalPolicyLoss(object):
         self.mean_policy_loss = tf.reduce_mean(-tf.add_n(self.surr))
         self.surr = tf.add_n(self.surr)
         self.entropy = tf.add_n(self.entropy)
-        kl_prod = tf.add_n([kl_coeff[i] * prev_kl for
-                            i, prev_kl in enumerate(self.kl)])
+        kl_prod = kl_coeff*self.kl
 
         if config["use_gae"]:
             # We use a huber loss here to be more robust against outliers,
