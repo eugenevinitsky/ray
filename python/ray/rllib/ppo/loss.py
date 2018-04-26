@@ -26,6 +26,8 @@ class ProximalPolicyLoss(object):
         # Saved so that we can compute actions given different observations
         self.observations = observations
 
+        split_obs = tf.split(observations, num_or_size_splits=self.num_agents, axis=1)
+        use_in_loss = list(zip([obs[:, 0] for obs in split_obs]))
         self.curr_logits = ModelCatalog.get_model(
             registry, observations, logit_dim, config["model"]).outputs
         self.curr_dist = distribution_class(self.curr_logits)
@@ -63,8 +65,8 @@ class ProximalPolicyLoss(object):
         self.surr2 = [tf.clip_by_value(ratio_i, 1 - config["clip_param"],
                                        1 + config["clip_param"]) * advantages
                       for ratio_i in self.ratio]
-        self.surr = [tf.minimum(surr1_i, surr2_i) for surr1_i, surr2_i in
-                     zip(self.surr1, self.surr2)]
+        self.surr = [use_in_loss[i]*tf.minimum(surr_i[0], surr_i[1]) for i, surr_i in
+                     enumerate(zip(self.surr1, self.surr2))]
         self.surr = tf.add_n(self.surr)
         self.mean_policy_loss = tf.reduce_mean(-self.surr)
 
@@ -73,7 +75,7 @@ class ProximalPolicyLoss(object):
 
         # there's only one kl value for a shared model
         if self.shared_model:
-            kl_prod = tf.add_n([kl_coeff[0] * kl_i for
+            kl_prod = tf.add_n([use_in_loss[i] * kl_coeff[0] * kl_i for
                                 i, kl_i in enumerate(self.kl)])
             # all the above values have been rescaled by num_agents
             self.surr /= self.num_agents
