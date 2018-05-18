@@ -6,7 +6,7 @@ import tensorflow as tf
 
 from ray.rllib.models import ModelCatalog
 
-class ProximalPolicyLoss_AD_fit_loss(object):
+class ProximalPolicyLoss_AD(object):
     other_output = ["vf_preds", "logprobs"]
     is_recurrent = False
 
@@ -121,10 +121,18 @@ class ProximalPolicyLoss_AD_fit_loss(object):
             self.vf_loss2 = tf.square(vf_clipped - value_targets)
             self.vf_loss = tf.minimum(self.vf_loss1, self.vf_loss2)
             self.mean_vf_loss = tf.reduce_mean(self.vf_loss)
-            self.loss = tf.reduce_mean(
-                -self.surr + kl_prod +
-                config["vf_loss_coeff"] * self.vf_loss -
-                entropy_prod)
+
+            if config["num_sgd_iter_baseline"] == 0:
+                self.loss = tf.reduce_mean(
+                    -self.surr + kl_prod +
+                    config["vf_loss_coeff"] * self.vf_loss -
+                    entropy_prod)
+            else:
+                self.loss = tf.reduce_mean(
+                    -self.surr + kl_prod -
+                    entropy_prod)
+
+
         else:
             self.mean_vf_loss = tf.constant(0.0)
             self.loss = tf.reduce_mean(
@@ -168,7 +176,10 @@ class ProximalPolicyLoss_AD_fit_loss(object):
     def loss(self):
         return self.loss
 
+    def mean_vf_loss(self):
+        return self.mean_vf_loss
 
+"""
 class ProximalPolicyLoss_AD(object):
     other_output = ["vf_preds", "logprobs"]
     is_recurrent = False
@@ -333,7 +344,7 @@ class ProximalPolicyLoss_AD(object):
 
     def loss(self):
         return self.loss
-
+"""
 
 
 

@@ -107,7 +107,6 @@ class PPOEvaluator(PolicyEvaluator):
                         self.kl_coeff, self.distribution_class, self.config,
                         self.sess, self.registry)
         else:
-
             def build_loss(obs, vtargets, advs, acts, plog, pvf_preds):
                 return ProximalPolicyLoss(
                         self.env.observation_space, self.env.action_space,
@@ -117,7 +116,7 @@ class PPOEvaluator(PolicyEvaluator):
 
 
         self.par_opt = LocalSyncParallelOptimizer(
-            tf.train.AdamOptimizer(self.config["sgd_stepsize"]),
+            tf.train.AdamOptimizer(self.config["sgd_stepsize"]), self.config["num_sgd_iter_baseline"],
             self.devices,
             [self.observations, self.value_targets, self.advantages,
              self.actions, self.prev_logits, self.prev_vf_preds],
@@ -126,23 +125,43 @@ class PPOEvaluator(PolicyEvaluator):
             self.logdir)
 
         # Metric ops
-        with tf.name_scope("test_outputs"):
-            policies = self.par_opt.get_device_losses()
-            self.mean_loss = tf.reduce_mean(
-                tf.stack(values=[
-                    policy.loss for policy in policies]), 0)
-            self.mean_policy_loss = tf.reduce_mean(
-                tf.stack(values=[
-                    policy.mean_policy_loss for policy in policies]), 0)
-            self.mean_vf_loss = tf.reduce_mean(
-                tf.stack(values=[
-                    policy.mean_vf_loss for policy in policies]), 0)
-            self.mean_kl = tf.reduce_mean(
-                tf.stack(values=[
-                    policy.mean_kl for policy in policies]), 0)
-            self.mean_entropy = tf.reduce_mean(
-                tf.stack(values=[
-                    policy.mean_entropy for policy in policies]), 0)
+        if self.config["num_sgd_iter_baseline"] == 0:
+            with tf.name_scope("test_outputs"):
+                policies = self.par_opt.get_device_losses()
+                self.mean_loss = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.loss for policy in policies]), 0)
+                self.mean_policy_loss = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_policy_loss for policy in policies]), 0)
+                self.mean_vf_loss = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_vf_loss for policy in policies]), 0)
+                self.mean_kl = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_kl for policy in policies]), 0)
+                self.mean_entropy = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_entropy for policy in policies]), 0)
+        else:
+            with tf.name_scope("test_outputs"):
+                policies_loss, policies_baselines = self.par_opt.get_device_losses()
+                self.mean_loss = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.loss for policy in policies_loss]), 0)
+                self.mean_policy_loss = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_policy_loss for policy in policies_loss]), 0)
+                self.mean_kl = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_kl for policy in policies_loss]), 0)
+                self.mean_entropy = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_entropy for policy in policies_loss]), 0)
+                self.mean_vf_loss = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_vf_loss for policy in policies_baselines]), 0)
+
 
         # References to the model weights
         self.common_policy = self.par_opt.get_common_loss()
@@ -176,10 +195,20 @@ class PPOEvaluator(PolicyEvaluator):
         return self.par_opt.optimize(
             self.sess,
             batch_index,
+            baseline = False,
             extra_ops=[
                 self.mean_loss, self.mean_policy_loss, self.mean_vf_loss,
                 self.mean_kl, self.mean_entropy],
             extra_feed_dict={self.kl_coeff: kl_coeff},
+            file_writer=file_writer if full_trace else None)
+
+    def run_sgd_minibatch_baseline(
+            self, batch_index, full_trace, file_writer):
+        return self.par_opt.optimize(
+            self.sess,
+            batch_index,
+            baseline=True,
+            extra_ops=[self.mean_vf_loss],
             file_writer=file_writer if full_trace else None)
 
     def compute_gradients(self, samples):

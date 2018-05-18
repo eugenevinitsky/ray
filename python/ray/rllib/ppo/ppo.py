@@ -32,6 +32,8 @@ DEFAULT_CONFIG = {
     "kl_coeff": 0.2,
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
+    # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE. If 0 -> NO fitting of the baseline
+    "num_sgd_iter_baseline": 30,
     # Stepsize of SGD
     "sgd_stepsize": 5e-5,
     # TODO(pcm): Expose the choice between gpus and cpus
@@ -246,6 +248,34 @@ class PPOAgent(Agent):
             self.local_evaluator.filters, self.remote_evaluators)
         res = self._fetch_metrics_from_remote_evaluators()
         res = res._replace(info=info)
+
+        if self.config["num_sgd_iter_baseline"] > 0:
+            print("Fitting the baseline")
+
+            for i in range(config["num_sgd_iter_baseline"]):
+                batch_index = 0
+                num_batches = (
+                    int(tuples_per_device) // int(model.per_device_batch_size))
+                vf_loss= []
+                permutation = np.random.permutation(num_batches)
+                # Prepare to drop into the debugger
+                if self.iteration == config["tf_debug_iteration"]:
+                    model.sess = tf_debug.LocalCLIDebugWrapperSession(model.sess)
+                while batch_index < num_batches:
+                    full_trace = (
+                        i == 0 and self.iteration == 0 and
+                        batch_index == config["full_trace_nth_sgd_batch"])
+                    batch_vf_loss = model.run_sgd_minibatch_baseline(
+                            permutation[batch_index] * model.per_device_batch_size,
+                            full_trace,
+                            self.file_writer)
+                    vf_loss.append(batch_vf_loss)
+                    batch_index += 1
+                vf_loss = np.mean(vf_loss)
+                print(
+                    "{:>15}{:15.5e}".format(
+                        i,  vf_loss))
+
         return res
 
     def _fetch_metrics_from_remote_evaluators(self):
