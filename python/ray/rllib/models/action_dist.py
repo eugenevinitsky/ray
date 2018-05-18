@@ -99,7 +99,7 @@ class DiagGaussian(ActionDistribution):
 
 
     def log_r_matrix(self, x):
-        return -0.5 * (tf.square(x- self.mean)) / tf.square(self.std) - 0.5*np.log(2 * np.pi * tf.square(self.std))
+        return -0.5 * (tf.square(x- self.mean)) / tf.square(self.std) - 0.5 * tf.log(2 * np.pi * tf.square(self.std))
 
     def entropy(self):
         return tf.reduce_sum(self.log_std + .5 * np.log(2.0 * np.pi * np.e),

@@ -107,7 +107,7 @@ class PPOEvaluator(PolicyEvaluator):
                         self.kl_coeff, self.distribution_class, self.config,
                         self.sess, self.registry)
         else:
-            print("THE LOSS IS CLASSIC")
+
             def build_loss(obs, vtargets, advs, acts, plog, pvf_preds):
                 return ProximalPolicyLoss(
                         self.env.observation_space, self.env.action_space,

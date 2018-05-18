@@ -152,7 +152,6 @@ class ModelCatalog(object):
 
         if obs_rank > 1:
             return VisionNetwork(inputs, num_outputs, options)
-
         return FullyConnectedNetwork(inputs, num_outputs, options)
 
     @staticmethod

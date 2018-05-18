@@ -37,4 +37,5 @@ class FullyConnectedNetwork(Model):
                 last_layer, num_outputs,
                 weights_initializer=normc_initializer(0.01),
                 activation_fn=None, scope=label)
+            trainable_varaibles = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
             return output, last_layer
