@@ -34,10 +34,14 @@ class PartialRollout(object):
             self.fields.extend(extra_fields)
         self.data = {k: [] for k in self.fields}
         self.last_r = 0.0
+        self.Q_function = []
 
     def add(self, **kwargs):
         for k, v in kwargs.items():
             self.data[k] += [v]
+
+    def set_Q_function(self, liste):
+        self.Q_function = liste
 
     def extend(self, other_rollout):
         """Extends internal data structure. Assumes other_rollout contains
@@ -72,7 +76,8 @@ class SyncSampler(object):
     async = False
 
     def __init__(self, env, policy, obs_filter,
-                 num_local_steps, horizon=None):
+                 num_local_steps, ADB, horizon=None):
+        self.ADB = ADB
         self.num_local_steps = num_local_steps
         self.horizon = horizon
         self.env = env
@@ -80,7 +85,7 @@ class SyncSampler(object):
         self._obs_filter = obs_filter
         self.rollout_provider = _env_runner(
             self.env, self.policy, self.num_local_steps, self.horizon,
-            self._obs_filter)
+            self._obs_filter, self.ADB)
         self.metrics_queue = queue.Queue()
 
     def get_data(self):
@@ -175,7 +180,7 @@ class AsyncSampler(threading.Thread):
         return completed
 
 
-def _env_runner(env, policy, num_local_steps, horizon, obs_filter):
+def _env_runner(env, policy, num_local_steps, horizon, obs_filter, ADB):
     """This implements the logic of the thread runner.
 
     It continually runs the policy, and as long as the rollout exceeds a
@@ -261,6 +266,10 @@ def _env_runner(env, policy, num_local_steps, horizon, obs_filter):
 
         if not terminal_end:
             rollout.last_r = policy.value(last_observation, *last_features)
+
+        if ADB:
+            Q_functions = policy.compute_Q_fuctions(rollout.data["obs"], rollout.data["actions"])
+            rollout.set_Q_function(Q_functions)
 
         # Once we have enough experience, yield it, and have the ThreadRunner
         # place it on a queue.

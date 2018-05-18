@@ -84,6 +84,8 @@ DEFAULT_CONFIG = {
     "write_logs": True,
     # Arguments to pass to the env creator
     "env_config": {},
+    # Whether we use the ADB version of PPO or NOT
+    "ADB": False
 }
 
 
@@ -94,7 +96,7 @@ class PPOAgent(Agent):
     _default_config = DEFAULT_CONFIG
 
     def _init(self):
-
+        ADB = self.config["ADB"]
         self.shared_model = (self.config["model"].get("custom_options", {}).
                         get("multiagent_shared_model", False))
         if self.shared_model:
@@ -105,13 +107,13 @@ class PPOAgent(Agent):
         self.global_step = 0
         self.kl_coeff = [self.config["kl_coeff"]] * self.num_models
         self.local_evaluator = PPOEvaluator(
-            self.registry, self.env_creator, self.config, self.logdir, False)
+            self.registry, self.env_creator, self.config, self.logdir, False, ADB)
         RemotePPOEvaluator = ray.remote(
             **self.config["worker_resources"])(PPOEvaluator)
         self.remote_evaluators = [
             RemotePPOEvaluator.remote(
                 self.registry, self.env_creator, self.config, self.logdir,
-                True)
+                True, ADB)
             for _ in range(self.config["num_workers"])]
         self.start_time = time.time()
         if self.config["write_logs"]:
