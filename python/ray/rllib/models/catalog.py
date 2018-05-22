@@ -12,6 +12,7 @@ from ray.tune.registry import RLLIB_MODEL, RLLIB_PREPROCESSOR, \
 
 from ray.rllib.models.action_dist import (
     Categorical, Deterministic, DiagGaussian, MultiActionDistribution)
+from ray.rllib.models.state_dist import von_Mises_Fisher
 from ray.rllib.models.preprocessors import get_preprocessor
 from ray.rllib.models.fcnet import FullyConnectedNetwork
 from ray.rllib.models.visionnet import VisionNetwork
@@ -36,7 +37,6 @@ MODEL_CONFIGS = [
     "custom_options",  # Extra options to pass to the custom classes
 ]
 
-
 class ModelCatalog(object):
     """Registry of models, preprocessors, and action distributions for envs.
 
@@ -49,6 +49,8 @@ class ModelCatalog(object):
         >>> dist = dist_cls(model.outputs)
         >>> action = dist.sample()
     """
+
+
 
     @staticmethod
     def get_action_dist(action_space, dist_type=None):
@@ -87,6 +89,28 @@ class ModelCatalog(object):
 
         raise NotImplementedError(
             "Unsupported args: {} {}".format(action_space, dist_type))
+
+    @staticmethod
+    def get_obs_dist(obs_space, dist_type=None):
+        """Returns action distribution class and size for the given action space.
+
+        Args:
+            action_space (Space): Action space of the target gym env.
+            dist_type (str): Optional identifier of the action distribution.
+
+        Returns:
+            dist_class (ActionDistribution): Python class of the distribution.
+            dist_dim (int): The size of the input vector to the distribution.
+        """
+
+        # TODO: implement other observation spaces
+
+        if isinstance(obs_space, gym.spaces.Box):
+            if dist_type is None:
+                return von_Mises_Fisher, obs_space.shape[0]
+
+        raise NotImplementedError(
+            "Unsupported args: {} {}".format(obs_space, dist_type))
 
     @staticmethod
     def get_action_placeholder(action_space):

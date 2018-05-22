@@ -75,7 +75,7 @@ class PPOEvaluator(PolicyEvaluator):
         # Targets of the value function.
         self.value_targets = tf.placeholder(tf.float32, shape=(None,))
         # Advantage values in the policy gradient estimator.
-        if ADB:
+        if self.ADB:
             self.advantages = tf.placeholder(tf.float32, shape=(None, action_dim))
         else:
             self.advantages = tf.placeholder(tf.float32, shape=(None,))
