@@ -47,6 +47,11 @@ class von_Mises_Fisher(StateDistribution):
         dot_product = tf.reduce_sum(tf.multiply(x, self.mean), axis=1)
         return tf.cast(tf.log(self.C_p), tf.float32) + self.kappa * dot_product
 
+    def entropy(self):
+        alpha = self.obs_dim / 2 - 1
+        return self.C_p * (2 * alpha - self.kappa * iv(alpha - 1, self.kappa) / iv(alpha, self.kappa)) \
+                - tf.cast(tf.log(self.C_p), tf.float32)
+
     def sample(self):
         return np.random.vonmises(self.mean, self.kappa)
 

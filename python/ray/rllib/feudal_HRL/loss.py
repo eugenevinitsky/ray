@@ -14,7 +14,7 @@ class FeudalLoss(object):
     is_recurrent = False
 
     def __init__(
-            self, observation_space, action_space,
+            self, diff, gsum, observation_space, action_space,
             observations, value_targets_manager, value_targets_worker, advantages_manager, advantages_worker, actions,
             prev_logits, prev_vf_preds_manager, prev_vf_preds_worker, logit_dim,
             kl_coeff, distribution_class, distribution_class_obs, config, sess, registry):
@@ -40,16 +40,28 @@ class FeudalLoss(object):
                                  units=config["g_dim"], \
                                  activation=tf.nn.elu)
 
+            """
             self.diff = self.s[config["c"]:] - self.s[:-config["c"]]
-            tensor = [tf.reshape(self.s[-1] - self.s[-1 - config["c"] + i], shape=(1, self.s[-1].shape[0])) for i in range(config["c"])]
+            tensor = [tf.reshape(self.s[i] - self.s[- config["c"] + i], shape=(1, self.s[-1].shape[0])) for i in range(config["c"])]
             tensor = tf.concat(tensor, axis=0)
             self.diff = tf.concat([self.diff, tensor], axis=0)
+            """
             x = tf.expand_dims(self.s, [0])
-            self.manager_lstm = SingleStepLSTM(x, config["g_dim"], \
+            print("x")
+            print(x)
+
+            dimension_lstm = config["g_dim"] if config["kappa"] != 0 else config["g_dim"] + 1
+            self.manager_lstm = SingleStepLSTM(x, dimension_lstm , \
                                                step_size=tf.shape(self.observations)[:1])
-            g_hat = self.manager_lstm.output
+            output = self.manager_lstm.output
+            if config["kappa"] != 0:
+                g_hat = output
+                kappa = config["kappa"]
+            else:
+                g_hat = output[:-1]
+                kappa = output[-1]
             self.g = tf.nn.l2_normalize(g_hat, dim=1)
-            self.manager_logits = distribution_class_obs(self.g, config["kappa"], observation_space.shape[0])
+            self.manager_logits = distribution_class_obs(self.g, kappa, observation_space.shape[0])
 
 
 
@@ -64,6 +76,8 @@ class FeudalLoss(object):
                     registry, observations, 1, vf_config).outputs
             self.value_function_manager = tf.reshape(self.value_function_manager, [-1])
 
+            self.diff = diff
+            self.diff = tf.nn.l2_normalize(self.diff, dim=1)
             self.logp_manager = self.manager_logits.logp(self.diff)
 
             if not isinstance(self.logp_manager, list):
@@ -111,23 +125,19 @@ class FeudalLoss(object):
                                               step_size=tf.shape(self.observations)[:1])
             flat_logits = self.worker_lstm.output
             U = tf.reshape(flat_logits, [-1, 2 * num_acts, config["k"]])
-            # Calculate w
-            cut_g = tf.stop_gradient(self.g)
+
+            """
             gsum = 0
             for i in range(config["c"]):
-                print("gsum")
-                print(gsum)
-                print("i")
-                print(i)
                 zeros = tf.zeros(shape=(i, config["g_dim"]), dtype=tf.float32)
-                tensor = [tf.reshape(cut_g[i], shape=(1,cut_g[i].shape[0])) for _ in range(config["c"] - i)]
-                tensor = tf.concat(tensor, axis=0)
-                tensor = tf.concat([zeros, tensor], axis=0)
-                print("cut_g[i:-i]")
-                print(cut_g[i:-i])
-                print("tensor")
-                print(tensor)
-                gsum +=  tf.concat([tensor, cut_g[i:-i]], axis=0)
+                constant = [tf.reshape(cut_g[i], shape=(1,cut_g[i].shape[0])) for _ in range(config["c"] - i)]
+                constant = tf.concat(constant, axis=0)
+                padding = tf.concat([zeros, constant], axis=0)
+                tensor = tf.concat([padding, cut_g[i:-config['c'] + i]], axis=0)
+                gsum += tensor
+            """
+
+            # Calculate w
 
             phi = tf.get_variable("phi", (config["g_dim"], config['k']))
             w = tf.matmul(gsum, phi)
@@ -200,8 +210,8 @@ class FeudalLoss(object):
                         entropy_prod_worker)
             else:
                 self.mean_vf_loss_worker = tf.constant(0.0)
-                self.loss = tf.reduce_mean(
-                    -self.surr +
+                self.loss_worker = tf.reduce_mean(
+                    -self.surr_worker +
                     kl_prod - entropy_prod_worker)
 
             self.sess = sess
@@ -214,10 +224,12 @@ class FeudalLoss(object):
                     self.sampler, self.curr_logits, tf.constant("NA")]
 
     def compute(self, observation):
-            action, logprobs, vfm, vfw, s, g = self.sess.run(
-                self.policy_results,
-                feed_dict={self.observations: [observation]})
-            return action[0], {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw[0],"logprobs": logprobs[0]}, s, g
+        print(observation)
+        print("observation")
+        action, logprobs, vfm, vfw, s, g = self.sess.run(
+            self.policy_results,
+            feed_dict={self.observations: [observation]})
+        return action[0], {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw[0],"logprobs": logprobs[0]}, s, g
 
 
     def loss_manager(self):
@@ -227,7 +239,7 @@ class FeudalLoss(object):
             return self.mean_vf_loss_manager
 
     def loss_worker(self):
-            return self.loss
+            return self.loss_worker
 
     def mean_vf_loss_worker(self):
             return self.mean_vf_loss_worker

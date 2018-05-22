@@ -125,13 +125,13 @@ class FeudalAgent(Agent):
         self.global_step = 0
         self.kl_coeff = [self.config["kl_coeff"]] * self.num_models
 
-        self.local = FeudalEvaluator(
+        self.local_evaluator = FeudalEvaluator(
             self.registry, self.env_creator, self.config, self.logdir, False)
 
-        RemoteFeudalEvaluatorr = ray.remote(
+        RemoteFeudalEvaluator = ray.remote(
             **self.config["worker_resources"])(FeudalEvaluator)
         self.remote_agents = [
-            FeudalEvaluator.remote(
+            RemoteFeudalEvaluator.remote(
                 self.registry, self.env_creator, self.config, self.logdir,
                 True)
             for _ in range(self.config["num_workers"])]
@@ -144,8 +144,8 @@ class FeudalAgent(Agent):
         self.saver = tf.train.Saver(max_to_keep=None)
 
     def _train(self):
-        agents = self.remote_workers
-        model = self.local_worker
+        agents = self.remote_agents
+        model = self.local_evaluator
         config = self.config
 
         if (config["num_workers"] * config["min_steps_per_task"] >

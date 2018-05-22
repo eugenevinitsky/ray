@@ -76,7 +76,7 @@ class PartialRollout_Feudal(object):
         last_r (float): Value of next state. Used for bootstrapping.
     """
 
-    fields = ["obs", "actions", "rewards", "new_obs", "dones", "features", "s", "g"]
+    fields = ["obs", "actions", "rewards", "new_obs", "dones", "features", "s", "g"]#, "s_diff", "gsum"]
 
     def __init__(self, extra_fields=None):
         """Initializers internals. Maintains a `last_r` field
@@ -136,7 +136,7 @@ class SyncSampler_Feudal(object):
     async = False
 
     def __init__(self, env, policy, obs_filter,
-                 num_local_steps, horizon=None):
+                 num_local_steps, c, horizon=None):
         self.num_local_steps = num_local_steps
         self.horizon = horizon
         self.env = env
@@ -144,7 +144,7 @@ class SyncSampler_Feudal(object):
         self._obs_filter = obs_filter
         self.rollout_provider = _env_runner_Feudal(
             self.env, self.policy, self.num_local_steps, self.horizon,
-            self._obs_filter)
+            self._obs_filter, c)
         self.metrics_queue = queue.Queue()
 
     def get_data(self):
@@ -166,7 +166,7 @@ class SyncSampler_Feudal(object):
 
 
 
-def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter):
+def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c):
     """This implements the logic of the thread runner.
 
     It continually runs the policy, and as long as the rollout exceeds a
@@ -201,16 +201,12 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter):
     rewards = 0
     rollout_number = 0
 
-    s_s = []
-    g_s = []
     while True:
         terminal_end = False
-        rollout = PartialRollout(extra_fields=policy.other_output)
+        rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
 
         for _ in range(num_local_steps):
             action, pi_info, s, g = policy.compute(last_observation, *last_features)
-            s_s.append(s)
-            g_s.append(g)
             if policy.is_recurrent:
                 features = pi_info["features"]
                 del pi_info["features"]
@@ -236,6 +232,23 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter):
                         s=s,
                         g=g
                         **pi_info)
+
+            diff = rollout.s[c:] - rollout.s[:-c]
+            tensor = [np.reshape(rollout.s[i] - rollout.s[- c + i], newshape=(1, rollout.s[-1].shape[0])) for i in range(c)]
+            tensor = np.concatenate(tensor, axis=0)
+            diff = np.concatenate([diff, tensor], axis=0)
+            rollout.data["diff"] = diff
+
+            gsum = 0
+            g_dim = rollout.data["g"].shape[1]
+            for i in range(c):
+                zeros = np.zeros((i, g_dim))
+                constant = [np.reshape(rollout.data["g"][i], shape=(1,rollout.data["g"][i].shape[0])) for _ in range(c - i)]
+                constant = np.concatenate(constant, axis=0)
+                padding = np.concatenate([zeros, constant], axis=0)
+                tensor = np.concatenate([padding, rollout.data["g"][i:-c + i]], axis=0)
+                gsum += tensor
+            rollout.data["gsum"] = gsum
 
             last_observation = observation
             last_features = features

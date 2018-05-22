@@ -71,7 +71,7 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
 
     vpred_t_worker = np.stack(
         rollout.data["vf_preds_worker"] + [np.array(rollout.last_r)]).squeeze()
-    delta_t_worker = internal_returns_ponctual + gamma * vpred_t_worker[1:] - vpred_t_worker[:-1]
+    delta_t_worker = traj["rewards"] + tradeoff_rewards * internal_returns_ponctual + gamma * vpred_t_worker[1:] - vpred_t_worker[:-1]
     traj["advantages_worker"] = discount(delta_t_worker, gamma_internal * lambda_internal)
     traj["value_targets_worker"] = internal_returns
 

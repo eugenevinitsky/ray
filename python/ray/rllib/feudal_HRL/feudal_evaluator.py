@@ -69,8 +69,12 @@ class FeudalEvaluator(PolicyEvaluator):
         action_space = self.env.action_space
         action_dim = action_space.shape[0]
         # The input observations.
+        self.diff = tf.placeholder(
+            tf.float32, shape=(None, self.config["g_dim"]))
+        self.gsum = tf.placeholder(
+            tf.float32, shape=(None, self.config["g_dim"]))
         self.observations = tf.placeholder(
-            tf.float32, shape=(None,) + obs_space.shape)
+            tf.float32, shape=(None, ) + obs_space.shape)
         # Targets of the value functions.
         self.value_targets_manager = tf.placeholder(tf.float32, shape=(None,))
         self.value_targets_worker = tf.placeholder(tf.float32, shape=(None,))
@@ -100,9 +104,9 @@ class FeudalEvaluator(PolicyEvaluator):
             assert self.batch_size % len(devices) == 0
             self.per_device_batch_size = int(self.batch_size / len(devices))
 
-        def build_loss(obs, value_targets_manager, value_targets_worker, advantages_manager, advantages_worker, acts,
+        def build_loss(diff, gsum, obs, value_targets_manager, value_targets_worker, advantages_manager, advantages_worker, acts,
                        plog, prev_vf_preds_manager, prev_vf_preds_worker):
-                return FeudalLoss(
+                return FeudalLoss(diff, gsum,
                         self.env.observation_space, self.env.action_space,
                         obs, value_targets_manager, value_targets_worker, advantages_manager, advantages_worker, acts, plog, prev_vf_preds_manager, prev_vf_preds_worker, self.logit_dim,
                         self.kl_coeff, self.distribution_class, self.distribution_class_obs, self.config,
@@ -112,7 +116,7 @@ class FeudalEvaluator(PolicyEvaluator):
         self.par_opt = LocalSyncParallelOptimizer_Feudal(
             tf.train.AdamOptimizer(self.config["sgd_stepsize"]), self.config["num_sgd_iter_baseline"],
             self.devices,
-            [self.observations, self.value_targets_manager, self.value_targets_worker,
+            [self.diff, self.gsum, self.observations, self.value_targets_manager, self.value_targets_worker,
              self.advantages_manager, self.advantages_worker,
              self.actions, self.prev_logits, self.prev_vf_preds_manager, self.prev_vf_preds_worker],
             self.per_device_batch_size,
@@ -121,28 +125,28 @@ class FeudalEvaluator(PolicyEvaluator):
 
         # Metric ops
         with tf.name_scope("test_outputs"):
-            policies = self.par_opt.get_device_losses()
+            policies_manager, policies_worker = self.par_opt.get_device_losses()
             self.loss_manager = tf.reduce_mean(
                 tf.stack(values=[
-                    policy.loss_manager for policy in policies]), 0)
+                    policy.loss_manager for policy in policies_manager]), 0)
             self.mean_vf_loss_manager = tf.reduce_mean(
                 tf.stack(values=[
-                    policy.mean_vf_loss_manager for policy in policies]), 0)
+                    policy.mean_vf_loss_manager for policy in policies_manager]), 0)
             self.loss_worker = tf.reduce_mean(
                 tf.stack(values=[
-                    policy.loss_worker for policy in policies]), 0)
+                    policy.loss_worker for policy in policies_worker]), 0)
             self.mean_policy_loss_worker = tf.reduce_mean(
                 tf.stack(values=[
-                    policy.mean_policy_loss_worker for policy in policies]), 0)
+                    policy.mean_policy_loss_worker for policy in policies_worker]), 0)
             self.mean_vf_loss_worker = tf.reduce_mean(
                 tf.stack(values=[
-                    policy.mean_vf_loss_worker for policy in policies]), 0)
+                    policy.mean_vf_loss_worker for policy in policies_worker]), 0)
             self.mean_kl = tf.reduce_mean(
                 tf.stack(values=[
-                    policy.mean_kl for policy in policies]), 0)
+                    policy.mean_kl for policy in policies_worker]), 0)
             self.mean_entropy_worker = tf.reduce_mean(
                 tf.stack(values=[
-                    policy.mean_entropy_worker for policy in policies]), 0)
+                    policy.mean_entropy_worker for policy in policies_worker]), 0)
 
 
         # References to the model weights
@@ -156,13 +160,15 @@ class FeudalEvaluator(PolicyEvaluator):
                         "rew_filter": self.rew_filter}
         self.sampler = SyncSampler_Feudal(
             self.env, self.common_policy, self.obs_filter,
-            self.config["horizon"], self.config["horizon"])
+            self.config["horizon"], self.config["c"], self.config["horizon"])
         self.sess.run(tf.global_variables_initializer())
 
     def load_data(self, trajectories, full_trace):
         return self.par_opt.load_data(
             self.sess,
-            [trajectories["obs"],
+            [trajectories["diff"],
+             trajectories["gsum"],
+             trajectories["obs"],
              trajectories["value_targets_manager"],
              trajectories["value_targets_worker"],
              trajectories["advantages_manager"],
