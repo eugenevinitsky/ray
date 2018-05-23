@@ -75,6 +75,7 @@ class FeudalEvaluator(PolicyEvaluator):
             tf.float32, shape=(None, self.config["g_dim"]))
         self.observations = tf.placeholder(
             tf.float32, shape=(None, ) + obs_space.shape)
+
         # Targets of the value functions.
         self.value_targets_manager = tf.placeholder(tf.float32, shape=(None,))
         self.value_targets_worker = tf.placeholder(tf.float32, shape=(None,))
@@ -132,6 +133,9 @@ class FeudalEvaluator(PolicyEvaluator):
             self.mean_vf_loss_manager = tf.reduce_mean(
                 tf.stack(values=[
                     policy.mean_vf_loss_manager for policy in policies_manager]), 0)
+            self.manager_policy_loss = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_surr_manager for policy in policies_manager]), 0)
             self.loss_worker = tf.reduce_mean(
                 tf.stack(values=[
                     policy.loss_worker for policy in policies_worker]), 0)
@@ -179,15 +183,17 @@ class FeudalEvaluator(PolicyEvaluator):
              trajectories["vf_preds_worker"]],
             full_trace=full_trace)
 
-    def run_sgd_minibatch(
-            self, batch_index, kl_coeff, full_trace, file_writer):
+    def run_sgd_minibatch_manager(
+            self, batch_index, full_trace, file_writer):
         return self.par_opt.optimize(
             self.sess,
             batch_index,
             manager=True,
-            extra_ops=[self.loss_manager,  self.mean_vf_loss_manager],
-            file_writer=file_writer if full_trace else None), \
-               self.par_opt.optimize(
+            extra_ops=[self.loss_manager,  self.mean_vf_loss_manager, self.manager_policy_loss ],
+            file_writer=file_writer if full_trace else None)
+
+    def run_sgd_minibatch_worker(self, batch_index, kl_coeff, full_trace, file_writer):
+        return self.par_opt.optimize(
             self.sess,
             batch_index,
             manager=False,

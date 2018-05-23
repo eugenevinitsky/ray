@@ -96,7 +96,7 @@ class ProximalPolicyLoss_AD(object):
         self.mean_policy_loss = tf.reduce_mean(-self.surr)
 
         self.entropy = tf.add_n(self.entropy)
-        entropy_prod = config["entropy_coeff"]*self.entropy
+        entropy_prod = config["entropy_coeff"] * self.entropy
 
         # there's only one kl value for a shared model
         if self.shared_model:

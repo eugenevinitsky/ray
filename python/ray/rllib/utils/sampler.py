@@ -76,7 +76,9 @@ class PartialRollout_Feudal(object):
         last_r (float): Value of next state. Used for bootstrapping.
     """
 
-    fields = ["obs", "actions", "rewards", "new_obs", "dones", "features", "s", "g"]#, "s_diff", "gsum"]
+    fields = ["obs", "actions", "rewards", "new_obs", "dones", "features"]#, "s_diff", "gsum"]
+
+    field_specific_feudal = ["s", "g", ]
 
     def __init__(self, extra_fields=None):
         """Initializers internals. Maintains a `last_r` field
@@ -89,6 +91,7 @@ class PartialRollout_Feudal(object):
         if extra_fields:
             self.fields.extend(extra_fields)
         self.data = {k: [] for k in self.fields}
+        self.data_feudal = {k: [] for k in self.field_specific_feudal}
         self.last_r = 0.0
         self.Q_function = []
         self.internal_rewards = []
@@ -97,6 +100,10 @@ class PartialRollout_Feudal(object):
     def add(self, **kwargs):
         for k, v in kwargs.items():
             self.data[k] += [v]
+
+    def add_feudal(self, **kwargs):
+        for k, v in kwargs.items():
+            self.data_feudal[k] += [v]
 
     def set_Q_function(self, liste):
         self.Q_function = liste
@@ -126,6 +133,7 @@ CompletedRollout = namedtuple(
 
 
 class SyncSampler_Feudal(object):
+    print("WE ARE HERE")
     """This class interacts with the environment and tells it what to do.
 
     Note that batch_size is only a unit of measure here. Batches can
@@ -200,13 +208,24 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c):
     length = 0
     rewards = 0
     rollout_number = 0
-
+    g_s = 0
     while True:
         terminal_end = False
         rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
 
-        for _ in range(num_local_steps):
-            action, pi_info, s, g = policy.compute(last_observation, *last_features)
+        for step in range(num_local_steps):
+            s, g = policy.compute_manager(last_observation, *last_features)
+            if step == 0:
+                g_s = np.array([g])
+                g_sum = g
+            elif step < c:
+                g_s = np.append(g_s, [g], axis=0)
+                g_sum = g_s.sum(axis=0)
+            else:
+                g_s = np.append(g_s, [g], axis=0)
+                g_sum = g_s[-(c+1):].sum(axis=0)
+
+            action, pi_info = policy.compute_worker(g_sum, last_observation, *last_features)
             if policy.is_recurrent:
                 features = pi_info["features"]
                 del pi_info["features"]
@@ -229,26 +248,9 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c):
                         dones=terminal,
                         features=last_features,
                         new_obs=observation,
-                        s=s,
-                        g=g
                         **pi_info)
-
-            diff = rollout.s[c:] - rollout.s[:-c]
-            tensor = [np.reshape(rollout.s[i] - rollout.s[- c + i], newshape=(1, rollout.s[-1].shape[0])) for i in range(c)]
-            tensor = np.concatenate(tensor, axis=0)
-            diff = np.concatenate([diff, tensor], axis=0)
-            rollout.data["diff"] = diff
-
-            gsum = 0
-            g_dim = rollout.data["g"].shape[1]
-            for i in range(c):
-                zeros = np.zeros((i, g_dim))
-                constant = [np.reshape(rollout.data["g"][i], shape=(1,rollout.data["g"][i].shape[0])) for _ in range(c - i)]
-                constant = np.concatenate(constant, axis=0)
-                padding = np.concatenate([zeros, constant], axis=0)
-                tensor = np.concatenate([padding, rollout.data["g"][i:-c + i]], axis=0)
-                gsum += tensor
-            rollout.data["gsum"] = gsum
+            rollout.add_feudal(s=s,
+                               g=g)
 
             last_observation = observation
             last_features = features

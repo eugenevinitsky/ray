@@ -10,7 +10,7 @@ from ray.rllib.models.singlestepLSTM import SingleStepLSTM
 
 class FeudalLoss(object):
 
-    other_output = ["vf_preds", "logprobs"]
+    other_output = ["vf_preds_manager", "vf_preds_worker", "logprobs"]
     is_recurrent = False
 
     def __init__(
@@ -28,9 +28,11 @@ class FeudalLoss(object):
 
         # Saved so that we can compute actions given different observations
         self.observations = observations
+        self.g_sum = tf.stop_gradient(gsum)
+        self.diff = diff
 
         with tf.variable_scope("z"):
-            self.z = tf.layers.dense(inputs=observations, \
+            self.z = tf.layers.dense(inputs=self.observations, \
                                      units=256, \
                                      activation=tf.nn.relu)
 
@@ -40,32 +42,30 @@ class FeudalLoss(object):
                                  units=config["g_dim"], \
                                  activation=tf.nn.elu)
 
-            """
-            self.diff = self.s[config["c"]:] - self.s[:-config["c"]]
-            tensor = [tf.reshape(self.s[i] - self.s[- config["c"] + i], shape=(1, self.s[-1].shape[0])) for i in range(config["c"])]
-            tensor = tf.concat(tensor, axis=0)
-            self.diff = tf.concat([self.diff, tensor], axis=0)
-            """
             x = tf.expand_dims(self.s, [0])
-            print("x")
-            print(x)
 
-            dimension_lstm = config["g_dim"] if config["kappa"] != 0 else config["g_dim"] + 1
-            self.manager_lstm = SingleStepLSTM(x, dimension_lstm , \
-                                               step_size=tf.shape(self.observations)[:1])
-            output = self.manager_lstm.output
-            if config["kappa"] != 0:
-                g_hat = output
-                kappa = config["kappa"]
-            else:
-                g_hat = output[:-1]
-                kappa = output[-1]
+            with tf.variable_scope("LSTM"):
+                dimension_lstm_manager = config["g_dim"] if config["kappa"] != 0 else config["g_dim"] + 1
+                lstm_cell_manager = tf.nn.rnn_cell.BasicLSTMCell(dimension_lstm_manager)
+                initial_state = lstm_cell_manager.zero_state(1, dtype=tf.float32)
+                outputs, state = tf.nn.dynamic_rnn(lstm_cell_manager, x,
+                                                   initial_state=initial_state,
+                                                   dtype=tf.float32)
+                outputs = tf.squeeze(outputs)
+
+
+                if config["kappa"] != 0:
+                    g_hat = outputs
+                    kappa = config["kappa"]
+                else:
+                    g_hat = outputs[:-1]
+                    kappa = outputs[-1]
+
+            g_hat = tf.reshape(g_hat, shape=(-1, config["g_dim"]))
+
             self.g = tf.nn.l2_normalize(g_hat, dim=1)
             self.manager_logits = distribution_class_obs(self.g, kappa, observation_space.shape[0])
 
-
-
-            """BASELINE"""
             vf_config = config["model"].copy()
             # Do not split the last layer of the value function into
             # mean parameters and standard deviation parameters and
@@ -85,11 +85,9 @@ class FeudalLoss(object):
                 #self.entropy = [self.entropy]
 
             self.logp_manager = [logp for logp in zip(self.logp_manager)]
-            print(self.logp_manager)
-            print("self.logp_manager")
             self.surr_manager = [logp_manager * advantages_manager for logp_manager in self.logp_manager]
             self.surr_manager = tf.add_n(self.surr_manager)
-            self.surr_manager = tf.reduce_mean(self.surr_manager)
+            self.mean_surr_manager = tf.reduce_mean(self.surr_manager)
 
             self.vf_loss1_manager = tf.square(self.value_function_manager - value_targets_manager)
             vf_clipped_manager = prev_vf_preds_manager + tf.clip_by_value(
@@ -119,28 +117,22 @@ class FeudalLoss(object):
 
             num_acts = action_space.shape[0]
 
-            # Calculate U
-            self.worker_lstm = SingleStepLSTM(tf.expand_dims(self.z, [0]), \
-                                              size=2 * num_acts * config["k"],
-                                              step_size=tf.shape(self.observations)[:1])
-            flat_logits = self.worker_lstm.output
-            U = tf.reshape(flat_logits, [-1, 2 * num_acts, config["k"]])
+            with tf.variable_scope("LSTM"):
 
-            """
-            gsum = 0
-            for i in range(config["c"]):
-                zeros = tf.zeros(shape=(i, config["g_dim"]), dtype=tf.float32)
-                constant = [tf.reshape(cut_g[i], shape=(1,cut_g[i].shape[0])) for _ in range(config["c"] - i)]
-                constant = tf.concat(constant, axis=0)
-                padding = tf.concat([zeros, constant], axis=0)
-                tensor = tf.concat([padding, cut_g[i:-config['c'] + i]], axis=0)
-                gsum += tensor
-            """
+                new_z = tf.stop_gradient(self.z)
+                dimension_lstm_worker = 2 * num_acts * config["k"]
+                lstm_cell_worker = tf.nn.rnn_cell.BasicLSTMCell(dimension_lstm_worker)
+                initial_state = lstm_cell_worker.zero_state(1, dtype=tf.float32)
+                outputs_worker, state = tf.nn.dynamic_rnn(lstm_cell_worker, tf.expand_dims(new_z, [0]),
+                                                   initial_state=initial_state,
+                                                   dtype=tf.float32)
+                outputs_worker = tf.squeeze(outputs_worker)
+                U = tf.reshape(outputs_worker, [-1, 2 * num_acts, config["k"]])
 
             # Calculate w
 
             phi = tf.get_variable("phi", (config["g_dim"], config['k']))
-            w = tf.matmul(gsum, phi)
+            w = tf.matmul(self.g_sum, phi)
             w = tf.expand_dims(w, [2])
             # Calculate policy and sample
             self.curr_logits = tf.reshape(tf.matmul(U, w), [-1, 2 * num_acts])
@@ -174,7 +166,7 @@ class FeudalLoss(object):
             self.mean_policy_loss_worker = tf.reduce_mean(-self.surr_worker)
 
             self.entropy_worker = tf.add_n(self.entropy_worker)
-            entropy_prod_worker = config["entropy_coeff"]*self.entropy_worker
+            entropy_prod_worker = config["entropy_coeff"] * self.entropy_worker
 
             # there's only one kl value for a shared model
             if self.shared_model:
@@ -217,19 +209,27 @@ class FeudalLoss(object):
             self.sess = sess
 
             if config["use_gae"]:
+                self.policy_warmup = [
+                    self.s, self.g
+                ]
+
                 self.policy_results = [
-                    self.sampler, self.curr_logits, self.value_function_manager, self.value_function_worker, self.s, self.g]
+                    self.sampler, self.curr_logits, self.value_function_manager, self.value_function_worker]
             else:
                 self.policy_results = [
                     self.sampler, self.curr_logits, tf.constant("NA")]
 
-    def compute(self, observation):
-        print(observation)
-        print("observation")
-        action, logprobs, vfm, vfw, s, g = self.sess.run(
-            self.policy_results,
+    def compute_manager(self, observation):
+        s, g  = self.sess.run(
+            self.policy_warmup,
             feed_dict={self.observations: [observation]})
-        return action[0], {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw[0],"logprobs": logprobs[0]}, s, g
+        return s, g
+
+    def compute_worker(self, gsum, observation):
+        action, logprobs, vfm, vfw= self.sess.run(
+            self.policy_results,
+            feed_dict={self.observations: [observation], self.g_sum: gsum})
+        return action[0], {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw[0],"logprobs": logprobs[0]}
 
 
     def loss_manager(self):
@@ -239,8 +239,8 @@ class FeudalLoss(object):
             return self.mean_vf_loss_manager
 
     def loss_worker(self):
-            return self.loss_worker
+        return self.loss_worker
 
     def mean_vf_loss_worker(self):
-            return self.mean_vf_loss_worker
+        return self.mean_vf_loss_worker
 

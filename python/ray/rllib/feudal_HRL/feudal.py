@@ -168,13 +168,14 @@ class FeudalAgent(Agent):
             # to guard against the case where all values are equal
             return (value - value.mean()) / max(1e-4, value.std())
 
-        samples.data["advantages"] = standardized(samples["advantages"])
+        samples.data["advantages_manager"] = standardized(samples["advantages_manager"])
+        samples.data["advantages_worker"] = standardized(samples["advantages_worker"])
 
         rollouts_end = time.time()
         print("Computing policy (iterations=" + str(config["num_sgd_iter"]) +
               ", stepsize=" + str(config["sgd_stepsize"]) + "):")
         names = [
-            "iter", "total loss", "policy loss", "vf loss", "kl", "entropy"]
+            "iter", "loss_manager", "vf_loss_manager", "policy_loss_manager", "loss_worker", "policy_loss_worker", "vf_loss_worker", "kl", "entropy_worker"]
         print(("{:>15}" * len(names)).format(*names))
         samples.shuffle()
         shuffle_end = time.time()
@@ -190,7 +191,7 @@ class FeudalAgent(Agent):
             batch_index = 0
             num_batches = (
                 int(tuples_per_device) // int(model.per_device_batch_size))
-            loss_manager, vf_loss_manager, loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker = [], [], [], [], []
+            loss_manager, vf_loss_manager, policy_loss_manager, loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker = [], [], [], [], [], [], [], []
             permutation = np.random.permutation(num_batches)
             # Prepare to drop into the debugger
             if self.iteration == config["tf_debug_iteration"]:
@@ -199,13 +200,18 @@ class FeudalAgent(Agent):
                 full_trace = (
                     i == 0 and self.iteration == 0 and
                     batch_index == config["full_trace_nth_sgd_batch"])
-                batch_loss_manager, batch_vf_loss_manager, batch_loss_worker, batch_policy_loss_worker, batch_vf_loss_worker, batch_kl, \
-                    batch_entropy_worker = model.run_sgd_minibatch(
+                batch_loss_manager, batch_vf_loss_manager,  batch_loss_policy_manager= model.run_sgd_minibatch_manager(
+                        permutation[batch_index] * model.per_device_batch_size,
+                        full_trace,
+                        self.file_writer)
+                batch_loss_worker, batch_policy_loss_worker, batch_vf_loss_worker, batch_kl, \
+                    batch_entropy_worker = model.run_sgd_minibatch_worker(
                         permutation[batch_index] * model.per_device_batch_size,
                         self.kl_coeff, full_trace,
                         self.file_writer)
                 loss_manager.append(batch_loss_manager)
                 vf_loss_manager.append(batch_vf_loss_manager)
+                policy_loss_manager.append(batch_loss_policy_manager)
                 loss_worker.append(batch_loss_worker)
                 policy_loss_worker.append(batch_policy_loss_worker)
                 vf_loss_worker.append(batch_vf_loss_worker)
@@ -214,6 +220,7 @@ class FeudalAgent(Agent):
                 batch_index += 1
             loss_manager = np.mean(loss_manager)
             vf_loss_manager = np.mean(vf_loss_manager)
+            policy_loss_manager = np.mean(policy_loss_manager)
             loss_worker = np.mean(loss_worker)
             policy_loss_worker = np.mean(policy_loss_worker)
             vf_loss_worker= np.mean(vf_loss_worker)
@@ -221,12 +228,12 @@ class FeudalAgent(Agent):
             entropy_worker = np.mean(entropy_worker)
             sgd_end = time.time()
             print(
-                "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
-                    i, loss_manager, vf_loss_manager, loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker))
+                "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
+                    i, loss_manager, vf_loss_manager, policy_loss_manager, loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker))
 
             values = []
             if i == config["num_sgd_iter"] - 1:
-                metric_prefix = "ppo/sgd/final_iter/"
+                metric_prefix = "HRL/sgd/final_iter/"
                 values.append(tf.Summary.Value(
                     tag=metric_prefix + "kl_coeff",
                     simple_value=np.mean(self.kl_coeff)))
@@ -270,7 +277,7 @@ class FeudalAgent(Agent):
         }
 
         FilterManager.synchronize(
-            self.local_evaluator.filters, self.remote_evaluators)
+            self.local_evaluator.filters, self.remote_agents)
         res = self._fetch_metrics_from_remote_evaluators()
         res = res._replace(info=info)
 
@@ -280,7 +287,7 @@ class FeudalAgent(Agent):
         episode_rewards = []
         episode_lengths = []
         metric_lists = [a.get_completed_rollout_metrics.remote()
-                        for a in self.remote_evaluators]
+                        for a in self.remote_agents]
         for metrics in metric_lists:
             for episode in ray.get(metrics):
                 episode_lengths.append(episode.episode_length)
@@ -300,7 +307,7 @@ class FeudalAgent(Agent):
 
     def _stop(self):
         # workaround for https://github.com/ray-project/ray/issues/1516
-        for ev in self.remote_evaluators:
+        for ev in self.remote_agents:
             ev.__ray_terminate__.remote(ev._ray_actor_id.id())
 
     def _save(self, checkpoint_dir):
@@ -309,7 +316,7 @@ class FeudalAgent(Agent):
             os.path.join(checkpoint_dir, "checkpoint"),
             global_step=self.iteration)
         agent_state = ray.get(
-            [a.save.remote() for a in self.remote_evaluators])
+            [a.save.remote() for a in self.remote_agents])
         extra_data = [
             self.local_evaluator.save(),
             self.global_step,
@@ -326,7 +333,7 @@ class FeudalAgent(Agent):
         self.kl_coeff = extra_data[2]
         ray.get([
             a.restore.remote(o)
-                for (a, o) in zip(self.remote_evaluators, extra_data[3])])
+                for (a, o) in zip(self.remote_agents, extra_data[3])])
 
     def compute_action(self, observation):
         observation = self.local_evaluator.obs_filter(
