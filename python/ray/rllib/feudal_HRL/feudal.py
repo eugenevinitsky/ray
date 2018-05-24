@@ -37,8 +37,10 @@ DEFAULT_CONFIG = {
     "kl_coeff": 0.2,
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
-    # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE. If 0 -> NO fitting of the baseline
-    "num_sgd_iter_baseline": 0,
+    # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE of the MANAGER. If 0 -> NO fitting of the baseline
+    "num_sgd_iter_baseline_manager": 30,
+    # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE of the WORKER. If 0 -> NO fitting of the baseline
+    "num_sgd_iter_baseline_worker": 30,
     # Stepsize of SGD
     "sgd_stepsize": 5e-5,
     # TODO(pcm): Expose the choice between gpus and cpus
@@ -102,14 +104,16 @@ DEFAULT_CONFIG = {
     # Vf hidden size
     "vf_hidden_size" : 4,
     # Horizon of the manager
-    "c" : 2
+    "c" : 2,
+    # Boolean variable if the Worker use ADB
+    "ADB" : True
 
 
 }
 
 
 class FeudalAgent(Agent):
-    _agent_name = "PPO"
+    _agent_name = "Feudal"
     _allow_unknown_subkeys = ["model", "tf_session_args", "env_config",
                               "worker_resources"]
     _default_config = DEFAULT_CONFIG
