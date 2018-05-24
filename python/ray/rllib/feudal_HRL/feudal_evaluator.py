@@ -16,7 +16,7 @@ from ray.rllib.optimizers.multi_gpu_impl import LocalSyncParallelOptimizer_Feuda
 from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.sampler import SyncSampler_Feudal
 from ray.rllib.utils.filter import get_filter, MeanStdFilter
-from ray.rllib.utils.process_rollout import process_rollout_Feudal
+from ray.rllib.utils.process_rollout import process_rollout_Feudal, process_rollout_Feudal_AD
 
 from ray.rllib.feudal_HRL.loss import FeudalLoss
 
@@ -30,7 +30,9 @@ class FeudalEvaluator(PolicyEvaluator):
     network weights. When run as a remote agent, only this graph is used.
     """
 
-    def __init__(self, registry, env_creator, config, logdir, is_remote):
+    def __init__(self, registry, env_creator, config, logdir, is_remote, ADB):
+
+        self.ADB = ADB
         self.registry = registry
         self.is_remote = is_remote
         if is_remote:
@@ -83,7 +85,10 @@ class FeudalEvaluator(PolicyEvaluator):
 
         self.advantages_manager = tf.placeholder(tf.float32, shape=(None,))
 
-        self.advantages_worker = tf.placeholder(tf.float32, shape=(None,))
+        if self.config["ADB"]:
+            self.advantages_worker = tf.placeholder(tf.float32, shape=(None, action_dim))
+        else:
+            self.advantages_worker = tf.placeholder(tf.float32, shape=(None,))
 
         self.actions = ModelCatalog.get_action_placeholder(action_space)
         self.distribution_class_obs, self.obs_dim = ModelCatalog.get_obs_dist(obs_space)
@@ -105,17 +110,21 @@ class FeudalEvaluator(PolicyEvaluator):
             assert self.batch_size % len(devices) == 0
             self.per_device_batch_size = int(self.batch_size / len(devices))
 
-        def build_loss(diff, gsum, obs, value_targets_manager, value_targets_worker, advantages_manager, advantages_worker, acts,
-                       plog, prev_vf_preds_manager, prev_vf_preds_worker):
+        def build_loss(diff, gsum, obs, value_targets_manager, value_targets_worker, advantages_manager, advantages_worker,
+                           acts,
+                           plog, prev_vf_preds_manager, prev_vf_preds_worker):
                 return FeudalLoss(diff, gsum,
-                        self.env.observation_space, self.env.action_space,
-                        obs, value_targets_manager, value_targets_worker, advantages_manager, advantages_worker, acts, plog, prev_vf_preds_manager, prev_vf_preds_worker, self.logit_dim,
-                        self.kl_coeff, self.distribution_class, self.distribution_class_obs, self.config,
-                        self.sess, self.registry)
+                                  self.env.observation_space, self.env.action_space,
+                                  obs, value_targets_manager, value_targets_worker, advantages_manager, advantages_worker, acts,
+                                  plog, prev_vf_preds_manager, prev_vf_preds_worker, self.logit_dim,
+                                  self.kl_coeff, self.distribution_class, self.distribution_class_obs, self.config,
+                                  self.sess, self.registry, self.ADB)
+
 
 
         self.par_opt = LocalSyncParallelOptimizer_Feudal(
-            tf.train.AdamOptimizer(self.config["sgd_stepsize"]), self.config["num_sgd_iter_baseline"],
+            tf.train.AdamOptimizer(self.config["sgd_stepsize"]),
+            self.config["num_sgd_iter_baseline_manager"], self.config["num_sgd_iter_baseline_worker"],
             self.devices,
             [self.diff, self.gsum, self.observations, self.value_targets_manager, self.value_targets_worker,
              self.advantages_manager, self.advantages_worker,
@@ -125,8 +134,63 @@ class FeudalEvaluator(PolicyEvaluator):
             self.logdir)
 
         # Metric ops
-        with tf.name_scope("test_outputs"):
-            policies_manager, policies_worker = self.par_opt.get_device_losses()
+        if self.config["num_sgd_iter_baseline_manager"] == 0 and self.config["num_sgd_iter_baseline_worker"] == 0:
+            with tf.name_scope("test_outputs"):
+                policies_manager, policies_worker = self.par_opt.get_device_losses()
+                self.loss_manager = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.loss_manager for policy in policies_manager]), 0)
+                self.mean_vf_loss_manager = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_vf_loss_manager for policy in policies_manager]), 0)
+                self.manager_policy_loss = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_surr_manager for policy in policies_manager]), 0)
+                self.loss_worker = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.loss_worker for policy in policies_worker]), 0)
+                self.mean_policy_loss_worker = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_policy_loss_worker for policy in policies_worker]), 0)
+                self.mean_vf_loss_worker = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_vf_loss_worker for policy in policies_worker]), 0)
+                self.mean_kl = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_kl for policy in policies_worker]), 0)
+                self.mean_entropy_worker = tf.reduce_mean(
+                    tf.stack(values=[
+                        policy.mean_entropy_worker for policy in policies_worker]), 0)
+
+        elif self.config["num_sgd_iter_baseline_manager"] > 0 and self.config["num_sgd_iter_baseline_worker"] == 0:
+
+            policies_manager_loss, policies_manager_baseline, policies_worker = self.par_opt.get_device_losses()
+            self.loss_manager = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.loss_manager for policy in policies_manager_loss]), 0)
+            self.mean_vf_loss_manager = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_vf_loss_manager for policy in policies_manager_baseline]), 0)
+            self.manager_policy_loss = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_surr_manager for policy in policies_manager_loss]), 0)
+            self.loss_worker = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.loss_worker for policy in policies_worker]), 0)
+            self.mean_policy_loss_worker = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_policy_loss_worker for policy in policies_worker]), 0)
+            self.mean_vf_loss_worker = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_vf_loss_worker for policy in policies_worker]), 0)
+            self.mean_kl = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_kl for policy in policies_worker]), 0)
+            self.mean_entropy_worker = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_entropy_worker for policy in policies_worker]), 0)
+        elif self.config["num_sgd_iter_baseline_manager"] == 0 and self.config["num_sgd_iter_baseline_worker"] > 0:
+            policies_manager, policies_worker, policies_worker_baseline = self.par_opt.get_device_losses()
             self.loss_manager = tf.reduce_mean(
                 tf.stack(values=[
                     policy.loss_manager for policy in policies_manager]), 0)
@@ -144,7 +208,33 @@ class FeudalEvaluator(PolicyEvaluator):
                     policy.mean_policy_loss_worker for policy in policies_worker]), 0)
             self.mean_vf_loss_worker = tf.reduce_mean(
                 tf.stack(values=[
-                    policy.mean_vf_loss_worker for policy in policies_worker]), 0)
+                    policy.mean_vf_loss_worker for policy in policies_worker_baseline]), 0)
+            self.mean_kl = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_kl for policy in policies_worker]), 0)
+            self.mean_entropy_worker = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_entropy_worker for policy in policies_worker]), 0)
+        else:
+            policies_manager_loss, policies_manager_baseline, policies_worker, policies_worker_baseline = self.par_opt.get_device_losses()
+            self.loss_manager = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.loss_manager for policy in policies_manager_loss]), 0)
+            self.mean_vf_loss_manager = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_vf_loss_manager for policy in policies_manager_baseline]), 0)
+            self.manager_policy_loss = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_surr_manager for policy in policies_manager_loss]), 0)
+            self.loss_worker = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.loss_worker for policy in policies_worker]), 0)
+            self.mean_policy_loss_worker = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_policy_loss_worker for policy in policies_worker]), 0)
+            self.mean_vf_loss_worker = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.mean_vf_loss_worker for policy in policies_worker_baseline]), 0)
             self.mean_kl = tf.reduce_mean(
                 tf.stack(values=[
                     policy.mean_kl for policy in policies_worker]), 0)
@@ -155,8 +245,39 @@ class FeudalEvaluator(PolicyEvaluator):
 
         # References to the model weights
         self.common_policy = self.par_opt.get_common_loss()
-        self.variables = ray.experimental.TensorFlowVariables(
-            self.common_policy.loss, self.sess)
+
+        if self.config["num_sgd_iter_baseline_manager"] == 0 and self.config["num_sgd_iter_baseline_worker"] == 0:
+            self.variables_manager_loss = ray.experimental.TensorFlowVariables(
+                self.common_policy.loss_manager, self.sess)
+            self.variables_worker_loss = ray.experimental.TensorFlowVariables(
+                self.common_policy.loss_worker, self.sess)
+
+        elif self.config["num_sgd_iter_baseline_manager"] > 0 and self.config["num_sgd_iter_baseline_worker"] == 0:
+            self.variables_manager_loss = ray.experimental.TensorFlowVariables(
+                self.common_policy.loss_manager, self.sess)
+            self.variables_manager_baseline = ray.experimental.TensorFlowVariables(
+                self.common_policy.mean_vf_loss_manager, self.sess)
+            self.variables_worker_loss = ray.experimental.TensorFlowVariables(
+                self.common_policy.loss_worker, self.sess)
+
+        elif self.config["num_sgd_iter_baseline_manager"] == 0 and self.config["num_sgd_iter_baseline_worker"] > 0:
+            self.variables_manager_loss = ray.experimental.TensorFlowVariables(
+                self.common_policy.loss_manager, self.sess)
+            self.variables_worker_loss = ray.experimental.TensorFlowVariables(
+                self.common_policy.loss_worker, self.sess)
+            self.variables_worker_baseline = ray.experimental.TensorFlowVariables(
+                self.common_policy.mean_vf_loss_worker, self.sess)
+
+        else:
+            self.variables_manager_loss = ray.experimental.TensorFlowVariables(
+                self.common_policy.loss_manager, self.sess)
+            self.variables_manager_baseline = ray.experimental.TensorFlowVariables(
+                self.common_policy.mean_vf_loss_manager, self.sess)
+            self.variables_worker_loss = ray.experimental.TensorFlowVariables(
+                self.common_policy.loss_worker, self.sess)
+            self.variables_worker_baseline = ray.experimental.TensorFlowVariables(
+                self.common_policy.mean_vf_loss_worker, self.sess)
+
         self.obs_filter = get_filter(
             config["observation_filter"], self.env.observation_space.shape)
         self.rew_filter = MeanStdFilter((), clip=5.0)
@@ -164,7 +285,7 @@ class FeudalEvaluator(PolicyEvaluator):
                         "rew_filter": self.rew_filter}
         self.sampler = SyncSampler_Feudal(
             self.env, self.common_policy, self.obs_filter,
-            self.config["horizon"], self.config["c"], self.config["horizon"])
+            self.config["horizon"], self.ADB, self.config["c"], self.config["horizon"])
         self.sess.run(tf.global_variables_initializer())
 
     def load_data(self, trajectories, full_trace):
@@ -189,7 +310,22 @@ class FeudalEvaluator(PolicyEvaluator):
             self.sess,
             batch_index,
             manager=True,
+            worker=False,
+            baseline_manager=False,
+            baseline_worker=False,
             extra_ops=[self.loss_manager,  self.mean_vf_loss_manager, self.manager_policy_loss ],
+            file_writer=file_writer if full_trace else None)
+
+    def run_sgd_minibatch_baseline_manager(
+            self, batch_index, full_trace, file_writer):
+        return self.par_opt.optimize(
+            self.sess,
+            batch_index,
+            manager=False,
+            worker=False,
+            baseline_manager=True,
+            baseline_worker=False,
+            extra_ops=[self.mean_vf_loss_manager],
             file_writer=file_writer if full_trace else None)
 
     def run_sgd_minibatch_worker(self, batch_index, kl_coeff, full_trace, file_writer):
@@ -197,10 +333,25 @@ class FeudalEvaluator(PolicyEvaluator):
             self.sess,
             batch_index,
             manager=False,
+            worker=True,
+            baseline_manager=False,
+            baseline_worker=False,
             extra_ops=[
                 self.loss_worker, self.mean_policy_loss_worker, self.mean_vf_loss_worker,
                 self.mean_kl, self.mean_entropy_worker],
             extra_feed_dict={self.kl_coeff: kl_coeff},
+            file_writer=file_writer if full_trace else None)
+
+    def run_sgd_minibatch_baseline_worker(
+            self, batch_index, full_trace, file_writer):
+        return self.par_opt.optimize(
+            self.sess,
+            batch_index,
+            manager=False,
+            worker=False,
+            baseline_manager=False,
+            baseline_worker=True,
+            extra_ops=[self.mean_vf_loss_worker],
             file_writer=file_writer if full_trace else None)
 
     def compute_gradients(self, samples):
@@ -217,11 +368,34 @@ class FeudalEvaluator(PolicyEvaluator):
         objs = pickle.loads(objs)
         self.sync_filters(objs["filters"])
 
-    def get_weights(self):
-        return self.variables.get_weights()
 
-    def set_weights(self, weights):
-        self.variables.set_weights(weights)
+    def get_weights_manager_loss(self):
+        return self.variables_manager_loss.get_weights()
+
+    def set_weights_manager_loss(self, weights):
+        self.variables_manager_loss.set_weights(weights)
+
+
+    def get_weights_manager_baseline(self):
+        return self.variables_manager_baseline.get_weights()
+
+    def set_weights_manager_baseline(self, weights):
+        self.variables_manager_baseline.set_weights(weights)
+
+
+    def get_weights_worker_loss(self):
+        return self.variables_worker_loss.get_weights()
+
+    def set_weights_worker_loss(self, weights):
+        self.variables_worker_loss.set_weights(weights)
+
+
+    def get_weights_worker_baseline(self):
+        return self.variables_worker_baseline.get_weights()
+
+    def set_weights_worker_baseline(self, weights):
+        self.variables_worker_baseline.set_weights(weights)
+
 
     def sample(self):
         """Returns experience samples from this Evaluator. Observation
@@ -235,9 +409,14 @@ class FeudalEvaluator(PolicyEvaluator):
 
         while num_steps_so_far < self.config["min_steps_per_task"]:
             rollout = self.sampler.get_data()
-            samples = process_rollout_Feudal(self.config["c"], self.config["tradeoff_rewards"],
-                rollout, self.rew_filter, self.config["gamma"],
-                self.config["lambda"], use_gae=self.config["use_gae"])
+            if self.ADB:
+                samples = process_rollout_Feudal_AD(self.config["c"], self.config["tradeoff_rewards"],
+                                                 rollout, self.rew_filter, self.config["gamma"],
+                                                 self.config["lambda"], use_gae=self.config["use_gae"])
+            else:
+                samples = process_rollout_Feudal(self.config["c"], self.config["tradeoff_rewards"],
+                                                 rollout, self.rew_filter, self.config["gamma"],
+                                                 self.config["lambda"], use_gae=self.config["use_gae"])
 
             num_steps_so_far += samples.count
             all_samples.append(samples)

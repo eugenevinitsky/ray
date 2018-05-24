@@ -6,7 +6,8 @@ import tensorflow as tf
 
 from ray.rllib.models import ModelCatalog
 
-class ProximalPolicyLoss_AD(object):
+
+class ProximalPolicyLoss(object):
     other_output = ["vf_preds", "logprobs"]
     is_recurrent = False
 
@@ -14,9 +15,10 @@ class ProximalPolicyLoss_AD(object):
             self, observation_space, action_space,
             observations, value_targets, advantages, actions,
             prev_logits, prev_vf_preds, logit_dim,
-            kl_coeff, distribution_class, config, sess, registry):
+            kl_coeff, distribution_class, config, sess, registry, ADB):
 
         print("THIS IS THE NEW PPL")
+        self.ADB = ADB
         self.prev_dist = distribution_class(prev_logits)
         self.shared_model = (config["model"].get("custom_options", {}).
                              get("multiagent_shared_model", False))
@@ -30,13 +32,13 @@ class ProximalPolicyLoss_AD(object):
         self.actions = actions
         action_dim = action_space.shape[0]
 
-        model_1 =  ModelCatalog.get_model(
-            registry, observations, logit_dim, config["model"])
-        self.curr_logits = model_1.outputs
+        self.curr_logits = ModelCatalog.get_model(
+            registry, observations, logit_dim, config["model"]).outputs
         self.curr_dist = distribution_class(self.curr_logits)
         self.sampler = self.curr_dist.sample()
 
-        self.input_Q_value = tf.concat([observations, actions], 1)
+        if ADB:
+            self.input_Q_value = tf.concat([observations, actions], 1)
 
         if config["use_gae"]:
             vf_config = config["model"].copy()
@@ -44,22 +46,21 @@ class ProximalPolicyLoss_AD(object):
             # mean parameters and standard deviation parameters and
             # do not make the standard deviations free variables.
             vf_config["free_log_std"] = False
-            with tf.variable_scope("Q_function"):
-                self.Q_function = ModelCatalog.get_model(
-                    registry, self.input_Q_value, 1, vf_config).outputs
-            self.Q_function = tf.reshape(self.Q_function, [-1])
-
-        vars = []
-        for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
-            if "Q_function" not in var.name:
-                vars.append(var)
-
+            if ADB:
+                with tf.variable_scope("Q_function"):
+                    self.Q_function = ModelCatalog.get_model(
+                        registry, self.input_Q_value, 1, vf_config).outputs
+                self.Q_function = tf.reshape(self.Q_function, [-1])
+            else:
+                with tf.variable_scope("value_function"):
+                    self.value_function = ModelCatalog.get_model(
+                        registry, observations, 1, vf_config).outputs
+                self.value_function = tf.reshape(self.value_function, [-1])
 
         curr_r_matrix = self.curr_dist.r_matrix(actions)
         prev_r_matrix = self.prev_dist.r_matrix(actions)
-        curr_log_r_matrix = self.curr_dist.log_r_matrix(actions)
-        print("curr_log_r_matrix")
-        print(curr_log_r_matrix)
+        curr_r_matrix = [curr_r_matrix]
+        prev_r_matrix = [prev_r_matrix]
 
         curr_logp = self.curr_dist.logp(actions)
         prev_logp = self.prev_dist.logp(actions)
@@ -73,23 +74,32 @@ class ProximalPolicyLoss_AD(object):
             prev_logp = [prev_logp]
             self.entropy = [self.entropy]
 
-
-
-        curr_r_matrix = [curr_r_matrix]
-        prev_r_matrix = [prev_r_matrix]
         # Make loss functions.
-        self.ratio = [curr / prev
-                      for curr, prev in zip(curr_r_matrix, prev_r_matrix)]
+        if ADB:
+            self.ratio = [curr / prev
+                          for curr, prev in zip(curr_r_matrix, prev_r_matrix)]
+            self.surr2 = [tf.clip_by_value(ratio_i, (1 - config["clip_param"]) ** (1 / action_dim),
+                                           (1 + config["clip_param"]) ** (1 / action_dim)) * advantages
+                          for ratio_i in self.ratio]
+        else:
+            self.ratio = [tf.exp(curr - prev)
+                          for curr, prev in zip(curr_logp, prev_logp)]
+            self.surr2 = [tf.clip_by_value(ratio_i, 1 - config["clip_param"],
+                                           1 + config["clip_param"]) * advantages
+                          for ratio_i in self.ratio]
 
 
         self.mean_kl = [tf.reduce_mean(kl_i) for kl_i in self.kl]
         self.mean_entropy = tf.reduce_mean(self.entropy)
 
         self.surr1 = [ratio_i * advantages for ratio_i in self.ratio]
-        self.surr2 = [tf.clip_by_value(ratio_i, (1 - config["clip_param"])**(1/action_dim),
-                                       (1 + config["clip_param"])**(1/action_dim)) * advantages
-                      for ratio_i in self.ratio]
-        self.surr = [tf.reduce_sum(tf.minimum(surr1_i, surr2_i), reduction_indices=[1]) for surr1_i, surr2_i in
+
+
+        if ADB:
+            self.surr = [tf.reduce_sum(tf.minimum(surr1_i, surr2_i), reduction_indices=[1]) for surr1_i, surr2_i in
+                     zip(self.surr1, self.surr2)]
+        else:
+            self.surr = [tf.minimum(surr1_i, surr2_i) for surr1_i, surr2_i in
                      zip(self.surr1, self.surr2)]
 
         self.surr = tf.add_n(self.surr)
@@ -114,10 +124,17 @@ class ProximalPolicyLoss_AD(object):
             # We use a huber loss here to be more robust against outliers,
             # which seem to occur when the rollouts get longer (the variance
             # scales superlinearly with the length of the rollout)
-            self.vf_loss1 = tf.square(self.Q_function - value_targets)
-            vf_clipped = prev_vf_preds + tf.clip_by_value(
-                self.Q_function - prev_vf_preds,
-                -config["clip_param"], config["clip_param"])
+            if ADB:
+                self.vf_loss1 = tf.square(self.Q_function - value_targets)
+                vf_clipped = prev_vf_preds + tf.clip_by_value(
+                    self.Q_function - prev_vf_preds,
+                    -config["clip_param"], config["clip_param"])
+            else:
+                self.vf_loss1 = tf.square(self.value_function - value_targets)
+                vf_clipped = prev_vf_preds + tf.clip_by_value(
+                    self.value_function - prev_vf_preds,
+                    -config["clip_param"], config["clip_param"])
+
             self.vf_loss2 = tf.square(vf_clipped - value_targets)
             self.vf_loss = tf.minimum(self.vf_loss1, self.vf_loss2)
             self.mean_vf_loss = tf.reduce_mean(self.vf_loss)
@@ -142,22 +159,34 @@ class ProximalPolicyLoss_AD(object):
         self.sess = sess
 
         if config["use_gae"]:
-            self.policy_results = [
-                self.sampler, self.curr_logits]
+            if ADB:
+                self.policy_results = [
+                    self.sampler, self.curr_logits]
+            else:
+                self.policy_results = [
+                    self.sampler, self.curr_logits, self.value_function]
         else:
             self.policy_results = [
                 self.sampler, self.curr_logits, tf.constant("NA")]
 
+
     def compute(self, observation):
-        action, logprobs = self.sess.run(
-            self.policy_results,
-            feed_dict={self.observations: [observation]})
+        if self.ADB:
+            action, logprobs = self.sess.run(
+                    self.policy_results,
+                    feed_dict={self.observations: [observation]})
 
-        vf = self.sess.run(
-            self.Q_function,
-            feed_dict={self.observations: [observation], self.actions: action})
+            vf = self.sess.run(
+                    self.Q_function,
+                    feed_dict={self.observations: [observation], self.actions: action})
 
-        return action[0], {"vf_preds": vf[0], "logprobs": logprobs[0]}
+            return action[0], {"vf_preds": vf[0], "logprobs": logprobs[0]}
+
+        else:
+            action, logprobs, vf = self.sess.run(
+                        self.policy_results,
+                        feed_dict={self.observations: [observation]})
+            return action[0], {"vf_preds": vf[0], "logprobs": logprobs[0]}
 
 
     def compute_Q_fuctions(self, observations, actions):
@@ -172,131 +201,6 @@ class ProximalPolicyLoss_AD(object):
                 self.Q_function,
                 feed_dict={self.observations: observations, self.actions: actions_j}))
         return Q_functions
-
-    def loss(self):
-        return self.loss
-
-    def mean_vf_loss(self):
-        return self.mean_vf_loss
-
-
-
-class ProximalPolicyLoss(object):
-
-    other_output = ["vf_preds", "logprobs"]
-    is_recurrent = False
-
-    def __init__(
-            self, observation_space, action_space,
-            observations, value_targets, advantages, actions,
-            prev_logits, prev_vf_preds, logit_dim,
-            kl_coeff, distribution_class, config, sess, registry):
-        self.prev_dist = distribution_class(prev_logits)
-        self.shared_model = (config["model"].get("custom_options", {}).
-                             get("multiagent_shared_model", False))
-        self.num_agents = len(config["model"].get(
-            "custom_options", {}).get("multiagent_obs_shapes", [1]))
-
-        # Saved so that we can compute actions given different observations
-        self.observations = observations
-
-        self.curr_logits = ModelCatalog.get_model(
-            registry, observations, logit_dim, config["model"]).outputs
-        self.curr_dist = distribution_class(self.curr_logits)
-        self.sampler = self.curr_dist.sample()
-
-        if config["use_gae"]:
-            vf_config = config["model"].copy()
-            # Do not split the last layer of the value function into
-            # mean parameters and standard deviation parameters and
-            # do not make the standard deviations free variables.
-            vf_config["free_log_std"] = False
-            with tf.variable_scope("value_function"):
-                self.value_function = ModelCatalog.get_model(
-                    registry, observations, 1, vf_config).outputs
-            self.value_function = tf.reshape(self.value_function, [-1])
-
-        curr_logp = self.curr_dist.logp(actions)
-        prev_logp = self.prev_dist.logp(actions)
-        self.kl = self.prev_dist.kl(self.curr_dist)
-        self.entropy = self.curr_dist.entropy()
-
-        # handle everything uniform as if it were the multiagent case
-        if not isinstance(curr_logp, list):
-            self.kl = [self.kl]
-            curr_logp = [curr_logp]
-            prev_logp = [prev_logp]
-            self.entropy = [self.entropy]
-
-        # Make loss functions.
-        self.ratio = [tf.exp(curr - prev)
-                      for curr, prev in zip(curr_logp, prev_logp)]
-        self.mean_kl = [tf.reduce_mean(kl_i) for kl_i in self.kl]
-        self.mean_entropy = tf.reduce_mean(self.entropy)
-        self.surr1 = [ratio_i * advantages for ratio_i in self.ratio]
-        self.surr2 = [tf.clip_by_value(ratio_i, 1 - config["clip_param"],
-                                       1 + config["clip_param"]) * advantages
-                      for ratio_i in self.ratio]
-        self.surr = [tf.minimum(surr1_i, surr2_i) for surr1_i, surr2_i in
-                     zip(self.surr1, self.surr2)]
-        self.surr = tf.add_n(self.surr)
-        self.mean_policy_loss = tf.reduce_mean(-self.surr)
-
-        self.entropy = tf.add_n(self.entropy)
-        entropy_prod = config["entropy_coeff"]*self.entropy
-
-        # there's only one kl value for a shared model
-        if self.shared_model:
-            kl_prod = tf.add_n([kl_coeff[0] * kl_i for
-                                i, kl_i in enumerate(self.kl)])
-            # all the above values have been rescaled by num_agents
-            self.surr /= self.num_agents
-            kl_prod /= self.num_agents
-            entropy_prod /= self.num_agents
-        else:
-            kl_prod = tf.add_n([kl_coeff[i] * kl_i for
-                                i, kl_i in enumerate(self.kl)])
-
-        if config["use_gae"]:
-            # We use a huber loss here to be more robust against outliers,
-            # which seem to occur when the rollouts get longer (the variance
-            # scales superlinearly with the length of the rollout)
-            self.vf_loss1 = tf.square(self.value_function - value_targets)
-            vf_clipped = prev_vf_preds + tf.clip_by_value(
-                self.value_function - prev_vf_preds,
-                -config["clip_param"], config["clip_param"])
-            self.vf_loss2 = tf.square(vf_clipped - value_targets)
-            self.vf_loss = tf.minimum(self.vf_loss1, self.vf_loss2)
-            self.mean_vf_loss = tf.reduce_mean(self.vf_loss)
-            if config["num_sgd_iter_baseline"] == 0:
-                self.loss = tf.reduce_mean(
-                    -self.surr + kl_prod +
-                    config["vf_loss_coeff"] * self.vf_loss -
-                    entropy_prod)
-            else:
-                self.loss = tf.reduce_mean(
-                    -self.surr + kl_prod -
-                    entropy_prod)
-        else:
-            self.mean_vf_loss = tf.constant(0.0)
-            self.loss = tf.reduce_mean(
-                -self.surr +
-                kl_prod - entropy_prod)
-
-        self.sess = sess
-
-        if config["use_gae"]:
-            self.policy_results = [
-                self.sampler, self.curr_logits, self.value_function]
-        else:
-            self.policy_results = [
-                self.sampler, self.curr_logits, tf.constant("NA")]
-
-    def compute(self, observation):
-        action, logprobs, vf = self.sess.run(
-            self.policy_results,
-            feed_dict={self.observations: [observation]})
-        return action[0], {"vf_preds": vf[0], "logprobs": logprobs[0]}
 
     def loss(self):
         return self.loss

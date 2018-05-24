@@ -24,7 +24,7 @@ def discount_sum(x, gamma, terminal=0.0):
 def dcos(a,b):
     norme_a = np.multiply(a,a).sum(axis=1)
     norme_b  = np.multiply(b,b).sum(axis=1)
-    return np.multiply(a,b).sum(axis=1) / (1e-11 + norme_a * norme_b )
+    return np.multiply(a,b).sum(axis=1) / (1e-11 + np.sqrt(norme_a * norme_b) )
 
 def compute_internal_rewards(c, liste_s, liste_g):
     shifted_s = []
@@ -40,6 +40,83 @@ def compute_internal_rewards(c, liste_s, liste_g):
         internal_rewards += dcos(liste_s- shifted_s[i], shifted_g[i])
 
     return internal_rewards / c
+
+
+def process_rollout_Feudal_AD(c, tradeoff_rewards, rollout, reward_filter, gamma, gamma_internal, lambda_=1.0, lambda_internal= 0.97, use_gae=True):
+    """Given a rollout, compute its value targets and the advantage.
+
+    Args:
+        rollout (PartialRollout): Partial Rollout Object
+        reward_filter (Filter): Filter for processing advantanges
+        gamma (float): Parameter for GAE
+        lambda_ (float): Parameter for GAE
+        use_gae (bool): Using Generalized Advantage Estamation
+
+    Returns:
+        SampleBatch (SampleBatch): Object with experience from rollout and
+            processed rewards."""
+
+
+
+    traj = {}
+    trajsize = len(rollout.data["actions"])
+    for key in rollout.data:
+        traj[key] = np.stack(rollout.data[key])
+    for key in rollout.data_feudal:
+        traj[key] = np.squeeze(np.stack(rollout.data_feudal[key]))
+
+    returns = discount_sum(traj["rewards"], gamma)
+    internal_returns_ponctual = compute_internal_rewards(c, traj["s"], traj["g"])
+    internal_returns = discount_sum(internal_returns_ponctual, gamma_internal)
+
+    vpred_t_manager = np.append(traj["vf_preds_manager"], [np.array(rollout.last_r)], axis=0)
+    delta_t_manager = traj["rewards"] + gamma * vpred_t_manager[1:] - vpred_t_manager[:-1]
+    traj["advantages_manager"] = discount(delta_t_manager, gamma * lambda_)
+    traj["value_targets_manager"] = returns
+
+    Q_function = np.transpose(np.array(rollout.Q_function))
+    vpred_t_worker = np.vstack((Q_function, Q_function[-1]))
+    delta_t_worker = traj["rewards"].reshape(-1, 1) + tradeoff_rewards * internal_returns_ponctual.reshape(-1, 1) + gamma * vpred_t_worker[1:] - vpred_t_worker[:-1]
+    traj["advantages_worker"] = discount(delta_t_worker, gamma_internal * lambda_internal)
+    traj["value_targets_worker"] = returns + tradeoff_rewards * internal_returns
+
+
+    for i in range(traj["advantages_manager"].shape[0]):
+        traj["advantages_manager"][i] = reward_filter(traj["advantages_manager"][i])
+        traj["advantages_worker"][i] = reward_filter(traj["advantages_worker"][i])
+
+    traj["advantages_manager"] = traj["advantages_manager"].copy()
+    traj["advantages_worker"] = traj["advantages_worker"].copy()
+
+    diff_1 = np.append(traj["s"][c:], np.array([traj["s"][-1] for _ in range(c)]), axis=0)
+    diff = diff_1 - traj["s"]
+    traj["diff"] = diff.copy()
+    del traj["s"]
+
+    gsum = []
+    g_dim = traj["g"].shape[1]
+    for i in range(c + 1):
+        constant = np.array([traj["g"][i] for _ in range(c - i)])
+        zeros = np.zeros((i, g_dim))
+        if i == 0:
+            tensor = np.append(constant, traj["g"][i:i - c], axis=0)
+        elif i == c:
+            tensor = np.append(zeros, traj["g"][i:], axis=0)
+        else:
+            padding = np.append(zeros, constant, axis=0)
+            tensor = np.append(padding, traj["g"][i:i - c], axis=0)
+
+        gsum.append(tensor)
+
+    traj["gsum"] = np.array(gsum).sum(axis=0)
+    del traj["g"]
+
+
+    assert all(val.shape[0] == trajsize for val in traj.values()), \
+        "Rollout stacked incorrectly!"
+    return SampleBatch(traj)
+
+
 
 def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, gamma_internal, lambda_=1.0, lambda_internal= 0.97, use_gae=True):
     """Given a rollout, compute its value targets and the advantage.
@@ -75,7 +152,7 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
 
     delta_t_worker = traj["rewards"] + tradeoff_rewards * internal_returns_ponctual + gamma * vpred_t_worker[1:] - vpred_t_worker[:-1]
     traj["advantages_worker"] = discount(delta_t_worker, gamma_internal * lambda_internal)
-    traj["value_targets_worker"] = internal_returns
+    traj["value_targets_worker"] = returns + tradeoff_rewards * internal_returns
 
 
     for i in range(traj["advantages_manager"].shape[0]):
@@ -142,10 +219,6 @@ def process_rollout_AD(rollout, reward_filter, gamma, lambda_=1.0, use_gae=True)
         # This formula for the advantage comes
         # "Generalized Advantage Estimation": https://arxiv.org/abs/1506.02438
         traj["advantages"] = discount(delta_t, gamma * lambda_)
-
-        rewards_plus_v = np.stack(
-            rollout.data["rewards"] + [np.array(rollout.last_r)]).squeeze()
-        #traj["value_targets"] = traj["rewards"]
         traj["value_targets"] = returns
     else:
         rewards_plus_v = np.stack(

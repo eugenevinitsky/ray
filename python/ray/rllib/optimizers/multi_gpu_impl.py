@@ -47,14 +47,21 @@ class LocalSyncParallelOptimizer_Feudal(object):
         grad_norm_clipping: None or int stdev to clip grad norms by
     """
 
-    def __init__(self, optimizer, fitting_baseline_apart, devices, input_placeholders,
+    def __init__(self, optimizer, fitting_baseline_manager_apart, fitting_baseline_worker_apart, devices, input_placeholders,
                  per_device_batch_size, build_loss, logdir,
                  grad_norm_clipping=None):
         self.optimizer = optimizer
-        if fitting_baseline_apart > 0 :
-            self.fitting_baseline_apart = True
+
+        if fitting_baseline_manager_apart > 0 :
+            self.fitting_baseline_manager_apart = True
         else:
-            self.fitting_baseline_apart = False
+            self.fitting_baseline_manager_apart = False
+
+        if fitting_baseline_worker_apart > 0 :
+            self.fitting_baseline_worker_apart = True
+        else:
+            self.fitting_baseline_worker_apart = False
+
         self.devices = devices
         self.batch_size = per_device_batch_size * len(devices)
         self.per_device_batch_size = per_device_batch_size
@@ -74,12 +81,39 @@ class LocalSyncParallelOptimizer_Feudal(object):
             data_splits = zip(
                 *[tf.split(ph, len(devices)) for ph in input_placeholders])
 
-        self._towers_loss_manager = []
-        self._towers_loss_worker = []
-        for device, device_placeholders in zip(self.devices, data_splits):
-            new_tower_loss_manager, new_tower_loss_worker= self._setup_device(device,device_placeholders)
-            self._towers_loss_manager.append(new_tower_loss_manager)
-            self._towers_loss_worker.append(new_tower_loss_worker)
+
+        if self.fitting_baseline_manager_apart == False and self.fitting_baseline_worker_apart == False :
+            self._towers_loss_manager = []
+            self._towers_loss_worker = []
+            for device, device_placeholders in zip(self.devices, data_splits):
+                new_tower_loss_manager, new_tower_loss_worker= self._setup_device(device,device_placeholders)
+                self._towers_loss_manager.append(new_tower_loss_manager)
+                self._towers_loss_worker.append(new_tower_loss_worker)
+
+
+                avg = average_gradients([t.grads for t in self._towers_loss_manager])
+                if grad_norm_clipping:
+                    for i, (grad, var) in enumerate(avg):
+                        if grad is not None:
+                            avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+                self._train_op_loss_manager = self.optimizer.apply_gradients(avg)
+
+                avg = average_gradients([t.grads for t in self._towers_loss_worker])
+                if grad_norm_clipping:
+                    for i, (grad, var) in enumerate(avg):
+                        if grad is not None:
+                            avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+                self._train_op_loss_worker = self.optimizer.apply_gradients(avg)
+
+        elif self.fitting_baseline_manager_apart == True and self.fitting_baseline_worker_apart == False:
+            self._towers_loss_manager = []
+            self._towers_baseline_manager = []
+            self._towers_loss_worker = []
+            for device, device_placeholders in zip(self.devices, data_splits):
+                new_tower_loss_manager, new_tower_manager_baseline, new_towers_loss_worker = self._setup_device(device,device_placeholders)
+                self._towers_loss_manager.append(new_tower_loss_manager)
+                self._towers_baseline_manager.append(new_tower_manager_baseline)
+                self._towers_loss_worker.append(new_towers_loss_worker)
 
 
             avg = average_gradients([t.grads for t in self._towers_loss_manager])
@@ -87,14 +121,98 @@ class LocalSyncParallelOptimizer_Feudal(object):
                 for i, (grad, var) in enumerate(avg):
                     if grad is not None:
                         avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
-            self._train_op_manager = self.optimizer.apply_gradients(avg)
+            self._train_op_loss_manager = self.optimizer.apply_gradients(avg)
+
+            avg = average_gradients([t.grads for t in self._towers_baseline_manager])
+            if grad_norm_clipping:
+                for i, (grad, var) in enumerate(avg):
+                    if grad is not None:
+                        avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+            self._train_op_manager_baseline = self.optimizer.apply_gradients(avg)
 
             avg = average_gradients([t.grads for t in self._towers_loss_worker])
             if grad_norm_clipping:
                 for i, (grad, var) in enumerate(avg):
                     if grad is not None:
                         avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
-            self._train_op_worker = self.optimizer.apply_gradients(avg)
+            self._train_op_loss_worker = self.optimizer.apply_gradients(avg)
+
+
+        elif self.fitting_baseline_manager_apart == False and self.fitting_baseline_worker_apart == True:
+            self._towers_loss_manager = []
+            self._towers_loss_worker = []
+            self._towers_worker_baseline = []
+            for device, device_placeholders in zip(self.devices, data_splits):
+                new_tower_loss_manager, new_towers_loss_worker, new_tower_worker_baseline = self._setup_device(device,device_placeholders)
+                self._towers_loss_manager.append(new_tower_loss_manager)
+                self._towers_loss_worker.append(new_towers_loss_worker)
+                self._towers_worker_baseline.append(new_tower_worker_baseline)
+
+
+            avg = average_gradients([t.grads for t in self._towers_loss_manager])
+            if grad_norm_clipping:
+                for i, (grad, var) in enumerate(avg):
+                    if grad is not None:
+                        avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+            self._train_op_loss_manager = self.optimizer.apply_gradients(avg)
+
+            avg = average_gradients([t.grads for t in self._towers_loss_worker])
+            if grad_norm_clipping:
+                for i, (grad, var) in enumerate(avg):
+                    if grad is not None:
+                        avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+            self._train_op_loss_worker = self.optimizer.apply_gradients(avg)
+
+            avg = average_gradients([t.grads for t in self._towers_worker_baseline])
+            if grad_norm_clipping:
+                for i, (grad, var) in enumerate(avg):
+                    if grad is not None:
+                        avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+            self._train_op_worker_baseline = self.optimizer.apply_gradients(avg)
+
+
+        else:
+            self._towers_loss_manager = []
+            self._towers_baseline_manager = []
+            self._towers_loss_worker = []
+            self._towers_worker_baseline = []
+            for device, device_placeholders in zip(self.devices, data_splits):
+                new_tower_loss_manager, new_tower_manager_baseline, new_towers_loss_worker, new_tower_worker_baseline = self._setup_device(device,
+                                                                                                               device_placeholders)
+                self._towers_loss_manager.append(new_tower_loss_manager)
+                self._towers_baseline_manager.append(new_tower_manager_baseline)
+                self._towers_loss_worker.append(new_towers_loss_worker)
+                self._towers_worker_baseline.append(new_tower_worker_baseline)
+
+            avg = average_gradients([t.grads for t in self._towers_loss_manager])
+            if grad_norm_clipping:
+                for i, (grad, var) in enumerate(avg):
+                    if grad is not None:
+                        avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+            self._train_op_loss_manager = self.optimizer.apply_gradients(avg)
+
+            avg = average_gradients([t.grads for t in self._towers_baseline_manager])
+            if grad_norm_clipping:
+                for i, (grad, var) in enumerate(avg):
+                    if grad is not None:
+                        avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+            self._train_op_manager_baseline = self.optimizer.apply_gradients(avg)
+
+            avg = average_gradients([t.grads for t in self._towers_loss_worker])
+            if grad_norm_clipping:
+                for i, (grad, var) in enumerate(avg):
+                    if grad is not None:
+                        avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+            self._train_op_loss_worker = self.optimizer.apply_gradients(avg)
+
+            avg = average_gradients([t.grads for t in self._towers_worker_baseline])
+            if grad_norm_clipping:
+                for i, (grad, var) in enumerate(avg):
+                    if grad is not None:
+                        avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+            self._train_op_worker_baseline = self.optimizer.apply_gradients(avg)
+
+
 
 
 
@@ -130,12 +248,38 @@ class LocalSyncParallelOptimizer_Feudal(object):
             run_options = tf.RunOptions(trace_level=tf.RunOptions.NO_TRACE)
         run_metadata = tf.RunMetadata()
 
-        init_op = [t.init_op for t in self._towers_loss_manager] + [t.init_op for t in self._towers_loss_worker]
-        sess.run(
-            init_op,
-            feed_dict=feed_dict,
-            options=run_options,
-            run_metadata=run_metadata)
+        if self.fitting_baseline_manager_apart == False and self.fitting_baseline_worker_apart == False:
+            init_op = [t.init_op for t in self._towers_loss_manager] + [t.init_op for t in self._towers_loss_worker]
+            sess.run(
+                init_op,
+                feed_dict=feed_dict,
+                options=run_options,
+                run_metadata=run_metadata)
+        elif self.fitting_baseline_manager_apart == True and self.fitting_baseline_worker_apart == False:
+            init_op = [t.init_op for t in self._towers_loss_manager] + [t.init_op for t in self._towers_baseline_manager] + \
+                      [t.init_op for t in self._towers_loss_worker]
+            sess.run(
+                init_op,
+                feed_dict=feed_dict,
+                options=run_options,
+                run_metadata=run_metadata)
+        elif self.fitting_baseline_manager_apart == False and self.fitting_baseline_worker_apart == True:
+            init_op = [t.init_op for t in self._towers_loss_manager] + [t.init_op for t in self._towers_loss_worker] + \
+                      [t.init_op for t in self._towers_worker_baseline]
+            sess.run(
+                init_op,
+                feed_dict=feed_dict,
+                options=run_options,
+                run_metadata=run_metadata)
+        else:
+            init_op = [t.init_op for t in self._towers_loss_manager] + [t.init_op for t in self._towers_baseline_manager] + \
+                      [t.init_op for t in self._towers_loss_worker] + [t.init_op for t in self._towers_worker_baseline]
+            sess.run(
+                init_op,
+                feed_dict=feed_dict,
+                options=run_options,
+                run_metadata=run_metadata)
+
 
         if full_trace:
             trace = timeline.Timeline(step_stats=run_metadata.step_stats)
@@ -152,7 +296,7 @@ class LocalSyncParallelOptimizer_Feudal(object):
         assert tuples_per_device % self.per_device_batch_size == 0
         return tuples_per_device
 
-    def optimize(self, sess, batch_index, manager, extra_ops=[], extra_feed_dict={},
+    def optimize(self, sess, batch_index, manager, worker, baseline_manager, baseline_worker, extra_ops=[], extra_feed_dict={},
                  file_writer=None):
         """Run a single step of SGD.
 
@@ -185,15 +329,29 @@ class LocalSyncParallelOptimizer_Feudal(object):
 
         feed_dict = {self._batch_index: batch_index}
         feed_dict.update(extra_feed_dict)
+
         if manager:
             outs = sess.run(
-                [self._train_op_manager] + extra_ops,
+                [self._train_op_loss_manager] + extra_ops,
                 feed_dict=feed_dict,
                 options=run_options,
                 run_metadata=run_metadata)
-        else:
+        if worker:
             outs = sess.run(
-                [self._train_op_worker] + extra_ops,
+                [self._train_op_loss_worker] + extra_ops,
+                feed_dict=feed_dict,
+                options=run_options,
+                run_metadata=run_metadata)
+
+        if baseline_manager:
+            outs = sess.run(
+                [self._train_op_manager_baseline] + extra_ops,
+                feed_dict=feed_dict,
+                options=run_options,
+                run_metadata=run_metadata)
+        if baseline_worker:
+            outs = sess.run(
+                [self._train_op_worker_baseline] + extra_ops,
                 feed_dict=feed_dict,
                 options=run_options,
                 run_metadata=run_metadata)
@@ -212,8 +370,20 @@ class LocalSyncParallelOptimizer_Feudal(object):
         return self._shared_loss
 
     def get_device_losses(self):
-        return [t.loss_object for t in self._towers_loss_manager], [t.loss_object for t in self._towers_loss_worker]
+        if self.fitting_baseline_manager_apart == False and self.fitting_baseline_worker_apart == False:
+            return [t.loss_object for t in self._towers_loss_manager], [t.loss_object for t in self._towers_loss_worker]
 
+        elif self.fitting_baseline_manager_apart == True and self.fitting_baseline_worker_apart == False:
+            return [t.loss_object for t in self._towers_loss_manager], [t.loss_object for t in self._towers_baseline_manager], \
+                   [t.loss_object for t in self._towers_loss_worker]
+
+        elif self.fitting_baseline_manager_apart == False and self.fitting_baseline_worker_apart == True:
+            return [t.loss_object for t in self._towers_loss_manager], \
+                   [t.loss_object for t in self._towers_loss_worker], [t.loss_object for t in self._towers_worker_baseline]
+
+        else:
+            return [t.loss_object for t in self._towers_loss_manager], [t.loss_object for t in self._towers_baseline_manager], \
+                   [t.loss_object for t in self._towers_loss_worker], [t.loss_object for t in self._towers_worker_baseline]
 
     def _setup_device(self, device, device_input_placeholders):
         with tf.device(device):
@@ -233,20 +403,87 @@ class LocalSyncParallelOptimizer_Feudal(object):
                     current_slice.set_shape(ph.shape)
                     device_input_slices.append(current_slice)
                 device_loss_obj = self.build_loss(*device_input_slices)
+
                 device_grads_loss_manager = self.optimizer.compute_gradients(
                     device_loss_obj.loss_manager, colocate_gradients_with_ops=True)
                 device_grads_loss_worker = self.optimizer.compute_gradients(
-                        device_loss_obj.loss_manager, colocate_gradients_with_ops=True)
+                        device_loss_obj.loss_worker, colocate_gradients_with_ops=True)
 
-            return Tower(
+                if self.fitting_baseline_manager_apart:
+                    device_grads_manager_baseline = self.optimizer.compute_gradients(
+                        device_loss_obj.mean_vf_loss_manager, colocate_gradients_with_ops=True)
+                if self.fitting_baseline_worker_apart:
+                    device_grads_worker_baseline = self.optimizer.compute_gradients(
+                        device_loss_obj.mean_vf_loss_worker, colocate_gradients_with_ops=True)
+
+            if self.fitting_baseline_manager_apart == False and self.fitting_baseline_worker_apart == False:
+                return Tower(
+                        tf.group(*[batch.initializer
+                                   for batch in device_input_batches]),
+                    device_grads_loss_manager,
+                        device_loss_obj), \
+                       Tower(
+                        tf.group(*[batch.initializer
+                                   for batch in device_input_batches]),
+                    device_grads_loss_worker,
+                        device_loss_obj)
+
+            elif self.fitting_baseline_manager_apart == True and self.fitting_baseline_worker_apart == False:
+                return Tower(
+                        tf.group(*[batch.initializer
+                                   for batch in device_input_batches]),
+                    device_grads_loss_manager,
+                        device_loss_obj), \
+                       Tower(
+                           tf.group(*[batch.initializer
+                                      for batch in device_input_batches]),
+                           device_grads_manager_baseline,
+                           device_loss_obj), \
+                       Tower(
+                        tf.group(*[batch.initializer
+                                   for batch in device_input_batches]),
+                    device_grads_loss_worker,
+                        device_loss_obj)
+
+            if self.fitting_baseline_manager_apart == False and self.fitting_baseline_worker_apart == True:
+                return Tower(
+                        tf.group(*[batch.initializer
+                                   for batch in device_input_batches]),
+                    device_grads_loss_manager,
+                        device_loss_obj), \
+                       Tower(
+                        tf.group(*[batch.initializer
+                                   for batch in device_input_batches]),
+                    device_grads_loss_worker,
+                        device_loss_obj), \
+                       Tower(
+                        tf.group(*[batch.initializer
+                                   for batch in device_input_batches]),
+                           device_grads_worker_baseline,
+                        device_loss_obj)
+
+            else:
+                return Tower(
                     tf.group(*[batch.initializer
                                for batch in device_input_batches]),
-                device_grads_loss_manager,
-                    device_loss_obj), Tower(
+                    device_grads_loss_manager,
+                    device_loss_obj), \
+                       Tower(
                     tf.group(*[batch.initializer
                                for batch in device_input_batches]),
-                device_grads_loss_worker,
-                    device_loss_obj)
+                           device_grads_manager_baseline,
+                    device_loss_obj),\
+                       Tower(
+                           tf.group(*[batch.initializer
+                                      for batch in device_input_batches]),
+                           device_grads_loss_worker,
+                           device_loss_obj), \
+                       Tower(
+                           tf.group(*[batch.initializer
+                                      for batch in device_input_batches]),
+                           device_grads_worker_baseline,
+                           device_loss_obj)
+
 
 
 

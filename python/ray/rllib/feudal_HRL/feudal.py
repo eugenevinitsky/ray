@@ -130,14 +130,14 @@ class FeudalAgent(Agent):
         self.kl_coeff = [self.config["kl_coeff"]] * self.num_models
 
         self.local_evaluator = FeudalEvaluator(
-            self.registry, self.env_creator, self.config, self.logdir, False)
+            self.registry, self.env_creator, self.config, self.logdir, False, self.config["ADB"])
 
         RemoteFeudalEvaluator = ray.remote(
             **self.config["worker_resources"])(FeudalEvaluator)
         self.remote_agents = [
             RemoteFeudalEvaluator.remote(
                 self.registry, self.env_creator, self.config, self.logdir,
-                True)
+                True, self.config["ADB"])
             for _ in range(self.config["num_workers"])]
         self.start_time = time.time()
         if self.config["write_logs"]:
@@ -163,8 +163,18 @@ class FeudalAgent(Agent):
         print("===> iteration", self.iteration)
 
         iter_start = time.time()
-        weights = ray.put(model.get_weights())
-        [a.set_weights.remote(weights) for a in agents]
+
+        weights_manager_loss = ray.put(model.get_weights_manager_loss())
+        [a.set_weights_manager_loss.remote(weights_manager_loss) for a in agents]
+        weights_worker_loss = ray.put(model.get_weights_worker_loss())
+        [a.set_weights_worker_loss.remote(weights_worker_loss) for a in agents]
+        if self.config["num_sgd_iter_baseline_manager"] > 0 :
+            weights_manager_baseline = ray.put(model.get_weights_manager_baseline())
+            [a.set_weights_manager_baseline.remote(weights_manager_baseline) for a in agents]
+        if self.config["num_sgd_iter_baseline_worker"] > 0 :
+            weights_worker_baseline = ray.put(model.get_weights_worker_baseline())
+            [a.set_weights_worker_baseline.remote(weights_worker_baseline) for a in agents]
+
         samples = collect_samples(agents, config, self.local_evaluator)
 
         def standardized(value):
@@ -279,6 +289,63 @@ class FeudalAgent(Agent):
             "sgd_time": sgd_time,
             "sample_throughput": len(samples["obs"]) / sgd_time
         }
+
+        if self.config["num_sgd_iter_baseline_manager"] > 0:
+            print("Fitting the baseline of the Manager")
+
+            for i in range(config["num_sgd_iter_baseline_manager"]):
+                batch_index = 0
+                num_batches = (
+                    int(tuples_per_device) // int(model.per_device_batch_size))
+                vf_loss_manager = []
+                permutation = np.random.permutation(num_batches)
+                # Prepare to drop into the debugger
+                if self.iteration == config["tf_debug_iteration"]:
+                    model.sess = tf_debug.LocalCLIDebugWrapperSession(model.sess)
+                while batch_index < num_batches:
+                    full_trace = (
+                        i == 0 and self.iteration == 0 and
+                        batch_index == config["full_trace_nth_sgd_batch"])
+                    batch_vf_loss_manager = model.run_sgd_minibatch_baseline_manager(
+                            permutation[batch_index] * model.per_device_batch_size,
+                            full_trace,
+                            self.file_writer)
+                    vf_loss_manager.append(batch_vf_loss_manager)
+                    batch_index += 1
+                vf_loss_manager = np.mean(vf_loss_manager)
+                print(
+                    "{:>15}{:15.5e}".format(
+                        i,  vf_loss_manager))
+
+
+        if self.config["num_sgd_iter_baseline_worker"] > 0:
+            print("Fitting the baseline of the Worker")
+
+            for i in range(config["num_sgd_iter_baseline_worker"]):
+                batch_index = 0
+                num_batches = (
+                    int(tuples_per_device) // int(model.per_device_batch_size))
+                vf_loss_worker = []
+                permutation = np.random.permutation(num_batches)
+                # Prepare to drop into the debugger
+                if self.iteration == config["tf_debug_iteration"]:
+                    model.sess = tf_debug.LocalCLIDebugWrapperSession(model.sess)
+                while batch_index < num_batches:
+                    full_trace = (
+                        i == 0 and self.iteration == 0 and
+                        batch_index == config["full_trace_nth_sgd_batch"])
+                    batch_vf_loss_manager = model.run_sgd_minibatch_baseline_worker(
+                            permutation[batch_index] * model.per_device_batch_size,
+                            full_trace,
+                            self.file_writer)
+                    vf_loss_worker.append(batch_vf_loss_manager)
+                    batch_index += 1
+                vf_loss_worker = np.mean(vf_loss_worker)
+                print(
+                    "{:>15}{:15.5e}".format(
+                        i,  vf_loss_worker))
+
+
 
         FilterManager.synchronize(
             self.local_evaluator.filters, self.remote_agents)

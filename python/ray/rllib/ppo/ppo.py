@@ -141,8 +141,13 @@ class PPOAgent(Agent):
         print("===> iteration", self.iteration)
 
         iter_start = time.time()
-        weights = ray.put(model.get_weights())
-        [a.set_weights.remote(weights) for a in agents]
+        weights_loss = ray.put(model.get_weights_loss())
+        [a.set_weights_loss.remote(weights_loss) for a in agents]
+        if self.config["num_sgd_iter_baseline"] > 0:
+            weights_baselines = ray.put(model.get_weights_baselines())
+            [a.set_weights_baseline.remote(weights_baselines) for a in agents]
+
+
         samples = collect_samples(agents, config, self.local_evaluator)
 
         def standardized(value):
@@ -244,11 +249,6 @@ class PPOAgent(Agent):
             "sample_throughput": len(samples["obs"]) / sgd_time
         }
 
-        FilterManager.synchronize(
-            self.local_evaluator.filters, self.remote_evaluators)
-        res = self._fetch_metrics_from_remote_evaluators()
-        res = res._replace(info=info)
-
         if self.config["num_sgd_iter_baseline"] > 0:
             print("Fitting the baseline")
 
@@ -276,7 +276,12 @@ class PPOAgent(Agent):
                     "{:>15}{:15.5e}".format(
                         i,  vf_loss))
 
+        FilterManager.synchronize(
+            self.local_evaluator.filters, self.remote_evaluators)
+        res = self._fetch_metrics_from_remote_evaluators()
+        res = res._replace(info=info)
         return res
+
 
     def _fetch_metrics_from_remote_evaluators(self):
         episode_rewards = []

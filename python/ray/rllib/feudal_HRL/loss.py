@@ -17,9 +17,11 @@ class FeudalLoss(object):
             self, diff, gsum, observation_space, action_space,
             observations, value_targets_manager, value_targets_worker, advantages_manager, advantages_worker, actions,
             prev_logits, prev_vf_preds_manager, prev_vf_preds_worker, logit_dim,
-            kl_coeff, distribution_class, distribution_class_obs, config, sess, registry):
+            kl_coeff, distribution_class, distribution_class_obs, config, sess, registry, ADB):
 
-
+        self.ADB = ADB
+        action_dim = action_space.shape[0]
+        self.actions = actions
         self.prev_dist = distribution_class(prev_logits)
         self.shared_model = (config["model"].get("custom_options", {}).
                              get("multiagent_shared_model", False))
@@ -62,7 +64,6 @@ class FeudalLoss(object):
                     kappa = outputs[-1]
 
             g_hat = tf.reshape(g_hat, shape=(-1, config["g_dim"]))
-
             self.g = tf.nn.l2_normalize(g_hat, dim=1)
             self.manager_logits = distribution_class_obs(self.g, kappa, observation_space.shape[0])
 
@@ -97,23 +98,35 @@ class FeudalLoss(object):
             self.vf_loss_manager = tf.minimum(self.vf_loss1_manager, self.vf_loss2_manager)
             self.mean_vf_loss_manager = tf.reduce_mean(self.vf_loss_manager)
 
-            self.loss_manager = self.loss = tf.reduce_mean(
-                        -self.surr_manager +
-                        config["vf_loss_coeff_manager"] * self.vf_loss_manager)
+            if config["num_sgd_iter_baseline_manager"] == 0:
+                self.loss_manager = self.loss = tf.reduce_mean(
+                            -self.surr_manager +
+                            config["vf_loss_coeff_manager"] * self.vf_loss_manager)
+            else:
+                self.loss_manager = tf.reduce_mean(-self.surr_manager)
 
 
 
         with tf.variable_scope("Worker"):
+
+            if self.ADB:
+                self.input_Q_value = tf.concat([observations, actions], 1)
 
             vf_config = config["model"].copy()
             # Do not split the last layer of the value function into
             # mean parameters and standard deviation parameters and
             # do not make the standard deviations free variables.
             vf_config["free_log_std"] = False
-            with tf.variable_scope("value_function_worker"):
+
+            if self.ADB:
+                with tf.variable_scope("Q_function_worker"):
+                    self.Q_function_worker = ModelCatalog.get_model(
+                        registry, observations, 1, vf_config).outputs
+                self.Q_function_worker = tf.reshape(self.Q_function_worker, [-1])
+            else:
                 self.value_function_worker = ModelCatalog.get_model(
                     registry, observations, 1, vf_config).outputs
-            self.value_function_worker = tf.reshape(self.value_function_worker, [-1])
+                self.value_function_worker = tf.reshape(self.value_function_worker, [-1])
 
             num_acts = action_space.shape[0]
 
@@ -139,6 +152,8 @@ class FeudalLoss(object):
             self.curr_dist = distribution_class(self.curr_logits)
             self.sampler = self.curr_dist.sample()
 
+            curr_r_matrix = self.curr_dist.r_matrix(actions)
+            prev_r_matrix = self.prev_dist.r_matrix(actions)
             curr_logp = self.curr_dist.logp(actions)
             prev_logp = self.prev_dist.logp(actions)
             self.kl = self.prev_dist.kl(self.curr_dist)
@@ -151,17 +166,36 @@ class FeudalLoss(object):
                 prev_logp = [prev_logp]
                 self.entropy_worker = [self.entropy_worker]
 
-            # Make loss functions.
-            self.ratio_worker = [tf.exp(curr - prev)
-                          for curr, prev in zip(curr_logp, prev_logp)]
+            curr_r_matrix = [curr_r_matrix]
+            prev_r_matrix = [prev_r_matrix]
+
+            if self.ADB:
+                self.ratio_worker = [curr / prev
+                                     for curr, prev in zip(curr_r_matrix, prev_r_matrix)]
+                self.surr2_worker = [tf.clip_by_value(ratio_i, (1 - config["clip_param"]) ** (1 / action_dim),
+                                                      (1 + config["clip_param"]) ** (
+                                                                  1 / action_dim)) * advantages_worker
+                                     for ratio_i in self.ratio_worker]
+
+            else:
+                self.ratio_worker = [tf.exp(curr - prev)
+                                 for curr, prev in zip(curr_logp, prev_logp)]
+                self.surr2_worker = [tf.clip_by_value(ratio_i, 1 - config["clip_param"],
+                                                      1 + config["clip_param"]) * advantages_worker
+                                     for ratio_i in self.ratio_worker]
+
             self.mean_kl = [tf.reduce_mean(kl_i) for kl_i in self.kl]
             self.mean_entropy_worker = tf.reduce_mean(self.entropy_worker)
             self.surr1_worker = [ratio_i * advantages_worker for ratio_i in self.ratio_worker]
-            self.surr2_worker = [tf.clip_by_value(ratio_i, 1 - config["clip_param"],
-                                           1 + config["clip_param"]) * advantages_worker
-                          for ratio_i in self.ratio_worker]
-            self.surr_worker = [tf.minimum(surr1_i, surr2_i) for surr1_i, surr2_i in
-                         zip(self.surr1_worker, self.surr2_worker)]
+
+            if self.ADB:
+                self.surr_worker = [tf.reduce_sum(tf.minimum(surr1_i, surr2_i), reduction_indices=[1]) for
+                                    surr1_i, surr2_i in
+                                    zip(self.surr1_worker, self.surr2_worker)]
+            else:
+                self.surr_worker = [tf.minimum(surr1_i, surr2_i) for surr1_i, surr2_i in
+                                    zip(self.surr1_worker, self.surr2_worker)]
+
             self.surr_worker = tf.add_n(self.surr_worker)
             self.mean_policy_loss_worker = tf.reduce_mean(-self.surr_worker)
 
@@ -184,20 +218,28 @@ class FeudalLoss(object):
                 # We use a huber loss here to be more robust against outliers,
                 # which seem to occur when the rollouts get longer (the variance
                 # scales superlinearly with the length of the rollout)
-                self.vf_loss1_worker= tf.square(self.value_function_worker - value_targets_worker)
-                vf_clipped_worker = prev_vf_preds_worker + tf.clip_by_value(
-                    self.value_function_worker - prev_vf_preds_worker,
-                    -config["clip_param"], config["clip_param"])
+                if self.ADB:
+                    self.vf_loss1_worker= tf.square(self.Q_function_worker - value_targets_worker)
+                    vf_clipped_worker = prev_vf_preds_worker + tf.clip_by_value(
+                        self.Q_function_worker - prev_vf_preds_worker,
+                        -config["clip_param"], config["clip_param"])
+                else:
+                    self.vf_loss1_worker = tf.square(self.value_function_worker - value_targets_worker)
+                    vf_clipped_worker = prev_vf_preds_worker + tf.clip_by_value(
+                        self.value_function_worker - prev_vf_preds_worker,
+                        -config["clip_param"], config["clip_param"])
+
                 self.vf_loss2_worker = tf.square(vf_clipped_worker - value_targets_worker)
                 self.vf_loss_worker = tf.minimum(self.vf_loss1_worker, self.vf_loss2_worker)
                 self.mean_vf_loss_worker = tf.reduce_mean(self.vf_loss_worker)
-                if config["num_sgd_iter_baseline"] == 0:
+
+                if config["num_sgd_iter_baseline_worker"] == 0 :
                     self.loss_worker = tf.reduce_mean(
                         -self.surr_worker + kl_prod +
                         config["vf_loss_coeff_worker"] * self.vf_loss_worker -
                         entropy_prod_worker)
                 else:
-                    self.loss = tf.reduce_mean(
+                    self.loss_worker = tf.reduce_mean(
                         -self.surr_worker + kl_prod -
                         entropy_prod_worker)
             else:
@@ -208,13 +250,18 @@ class FeudalLoss(object):
 
             self.sess = sess
 
+
             if config["use_gae"]:
                 self.policy_warmup = [
                     self.s, self.g
                 ]
 
-                self.policy_results = [
-                    self.sampler, self.curr_logits, self.value_function_manager, self.value_function_worker]
+                if self.ADB:
+                    self.policy_results = [
+                        self.sampler, self.curr_logits, self.value_function_manager]
+                else:
+                    self.policy_results = [
+                        self.sampler, self.curr_logits, self.value_function_manager, self.value_function_worker]
             else:
                 self.policy_results = [
                     self.sampler, self.curr_logits, tf.constant("NA")]
@@ -225,10 +272,36 @@ class FeudalLoss(object):
             feed_dict={self.observations: [observation]})
         return s, g
 
+
+    def compute_Q_fuctions(self, observations, actions):
+        Q_function_worker = []
+        import numpy as np
+        actions = np.array(actions)
+        means = np.mean(actions, axis=0)
+        for j in range(actions.shape[1]):
+            actions_j = np.copy(actions)
+            actions_j[:, j] = means[j]
+            Q_function_worker.append(self.sess.run(
+                self.Q_function_worker,
+                feed_dict={self.observations: observations, self.actions: actions_j}))
+        return Q_function_worker
+
     def compute_worker(self, gsum, observation):
-        action, logprobs, vfm, vfw= self.sess.run(
-            self.policy_results,
-            feed_dict={self.observations: [observation], self.g_sum: gsum})
+        if self.ADB:
+
+            action, logprobs, vfm = self.sess.run(
+                self.policy_results,
+                feed_dict={self.observations: [observation], self.g_sum: gsum})
+
+            vfw = self.sess.run(
+                self.Q_function_worker,
+                feed_dict={self.observations: [observation], self.actions: action})
+        else:
+            action, logprobs, vfm, vfw = self.sess.run(
+                self.policy_results,
+                feed_dict={self.observations: [observation], self.g_sum: gsum})
+            return action[0], {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw[0], "logprobs": logprobs[0]}
+
         return action[0], {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw[0],"logprobs": logprobs[0]}
 
 
@@ -236,11 +309,15 @@ class FeudalLoss(object):
         return self.loss_manager
 
     def mean_vf_loss_manager(self):
-            return self.mean_vf_loss_manager
+        return self.mean_vf_loss_manager
 
     def loss_worker(self):
         return self.loss_worker
 
     def mean_vf_loss_worker(self):
         return self.mean_vf_loss_worker
+
+
+
+
 

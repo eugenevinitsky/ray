@@ -8,62 +8,6 @@ from collections import namedtuple
 import numpy as np
 
 
-class PartialRollout(object):
-    """A piece of a complete rollout.
-
-    We run our agent, and process its experience once it has processed enough
-    steps.
-
-    Attributes:
-        data (dict): Stores rollout data. All numpy arrays other than
-            `observations` and `features` will be squeezed.
-        last_r (float): Value of next state. Used for bootstrapping.
-    """
-
-    fields = ["obs", "actions", "rewards", "new_obs", "dones", "features"]
-
-    def __init__(self, extra_fields=None):
-        """Initializers internals. Maintains a `last_r` field
-        in support of partial rollouts, used in bootstrapping advantage
-        estimation.
-
-        Args:
-            extra_fields: Optional field for object to keep track.
-        """
-        if extra_fields:
-            self.fields.extend(extra_fields)
-        self.data = {k: [] for k in self.fields}
-        self.last_r = 0.0
-        self.Q_function = []
-        self.internal_rewards = []
-
-
-    def add(self, **kwargs):
-        for k, v in kwargs.items():
-            self.data[k] += [v]
-
-    def set_Q_function(self, liste):
-        self.Q_function = liste
-
-
-    def extend(self, other_rollout):
-        """Extends internal data structure. Assumes other_rollout contains
-        data that occured afterwards."""
-
-        assert not self.is_terminal()
-        assert all(k in other_rollout.fields for k in self.fields)
-        for k, v in other_rollout.data.items():
-            self.data[k].extend(v)
-        self.last_r = other_rollout.last_r
-
-    def is_terminal(self):
-        """Check if terminal.
-
-        Returns:
-            terminal (bool): if rollout has terminated."""
-        return self.data["dones"][-1]
-
-
 class PartialRollout_Feudal(object):
     """A piece of a complete rollout.
 
@@ -144,7 +88,8 @@ class SyncSampler_Feudal(object):
     async = False
 
     def __init__(self, env, policy, obs_filter,
-                 num_local_steps, c, horizon=None):
+                 num_local_steps, ADB, c, horizon=None):
+        self.ADB = ADB
         self.num_local_steps = num_local_steps
         self.horizon = horizon
         self.env = env
@@ -152,7 +97,7 @@ class SyncSampler_Feudal(object):
         self._obs_filter = obs_filter
         self.rollout_provider = _env_runner_Feudal(
             self.env, self.policy, self.num_local_steps, self.horizon,
-            self._obs_filter, c)
+            self._obs_filter, c, self.ADB)
         self.metrics_queue = queue.Queue()
 
     def get_data(self):
@@ -174,7 +119,7 @@ class SyncSampler_Feudal(object):
 
 
 
-def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c):
+def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB):
     """This implements the logic of the thread runner.
 
     It continually runs the policy, and as long as the rollout exceeds a
@@ -274,9 +219,69 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c):
         if not terminal_end:
             rollout.last_r = policy.value(last_observation, *last_features)
 
+        if ADB:
+            Q_functions = policy.compute_Q_fuctions(rollout.data["obs"], rollout.data["actions"])
+            rollout.set_Q_function(Q_functions)
+
         # Once we have enough experience, yield it, and have the ThreadRunner
         # place it on a queue.
         yield rollout
+
+
+class PartialRollout(object):
+    """A piece of a complete rollout.
+
+    We run our agent, and process its experience once it has processed enough
+    steps.
+
+    Attributes:
+        data (dict): Stores rollout data. All numpy arrays other than
+            `observations` and `features` will be squeezed.
+        last_r (float): Value of next state. Used for bootstrapping.
+    """
+
+    fields = ["obs", "actions", "rewards", "new_obs", "dones", "features"]
+
+    def __init__(self, extra_fields=None):
+        """Initializers internals. Maintains a `last_r` field
+        in support of partial rollouts, used in bootstrapping advantage
+        estimation.
+
+        Args:
+            extra_fields: Optional field for object to keep track.
+        """
+        if extra_fields:
+            self.fields.extend(extra_fields)
+        self.data = {k: [] for k in self.fields}
+        self.last_r = 0.0
+        self.Q_function = []
+        self.internal_rewards = []
+
+
+    def add(self, **kwargs):
+        for k, v in kwargs.items():
+            self.data[k] += [v]
+
+    def set_Q_function(self, liste):
+        self.Q_function = liste
+
+
+    def extend(self, other_rollout):
+        """Extends internal data structure. Assumes other_rollout contains
+        data that occured afterwards."""
+
+        assert not self.is_terminal()
+        assert all(k in other_rollout.fields for k in self.fields)
+        for k, v in other_rollout.data.items():
+            self.data[k].extend(v)
+        self.last_r = other_rollout.last_r
+
+    def is_terminal(self):
+        """Check if terminal.
+
+        Returns:
+            terminal (bool): if rollout has terminated."""
+        return self.data["dones"][-1]
 
 
 
@@ -315,84 +320,6 @@ class SyncSampler(object):
                 self.metrics_queue.put(item)
             else:
                 return item
-
-    def get_metrics(self):
-        completed = []
-        while True:
-            try:
-                completed.append(self.metrics_queue.get_nowait())
-            except queue.Empty:
-                break
-        return completed
-
-
-
-
-
-
-class AsyncSampler(threading.Thread):
-    """This class interacts with the environment and tells it what to do.
-
-    Note that batch_size is only a unit of measure here. Batches can
-    accumulate and the gradient can be calculated on up to 5 batches."""
-    async = True
-
-    def __init__(self, env, policy, obs_filter,
-                 num_local_steps, horizon=None):
-        assert getattr(obs_filter, "is_concurrent", False), (
-            "Observation Filter must support concurrent updates.")
-        threading.Thread.__init__(self)
-        self.queue = queue.Queue(5)
-        self.metrics_queue = queue.Queue()
-        self.num_local_steps = num_local_steps
-        self.horizon = horizon
-        self.env = env
-        self.policy = policy
-        self._obs_filter = obs_filter
-        self.started = False
-        self.daemon = True
-
-    def run(self):
-        self.started = True
-        try:
-            self._run()
-        except BaseException as e:
-            self.queue.put(e)
-            raise e
-
-    def _run(self):
-        rollout_provider = _env_runner(
-            self.env, self.policy, self.num_local_steps,
-            self.horizon, self._obs_filter)
-        while True:
-            # The timeout variable exists because apparently, if one worker
-            # dies, the other workers won't die with it, unless the timeout is
-            # set to some large number. This is an empirical observation.
-            item = next(rollout_provider)
-            if isinstance(item, CompletedRollout):
-                self.metrics_queue.put(item)
-            else:
-                self.queue.put(item, timeout=600.0)
-
-    def get_data(self):
-        """Gets currently accumulated data.
-
-        Returns:
-            rollout (PartialRollout): trajectory data (unprocessed)
-        """
-        assert self.started, "Sampler never started running!"
-        rollout = self.queue.get(timeout=600.0)
-        if isinstance(rollout, BaseException):
-            raise rollout
-        while not rollout.is_terminal():
-            try:
-                part = self.queue.get_nowait()
-                if isinstance(part, BaseException):
-                    raise rollout
-                rollout.extend(part)
-            except queue.Empty:
-                break
-        return rollout
 
     def get_metrics(self):
         completed = []
@@ -499,4 +426,77 @@ def _env_runner(env, policy, num_local_steps, horizon, obs_filter, ADB):
         # place it on a queue.
         yield rollout
 
+
+class AsyncSampler(threading.Thread):
+    """This class interacts with the environment and tells it what to do.
+
+    Note that batch_size is only a unit of measure here. Batches can
+    accumulate and the gradient can be calculated on up to 5 batches."""
+    async = True
+
+    def __init__(self, env, policy, obs_filter,
+                 num_local_steps, horizon=None):
+        assert getattr(obs_filter, "is_concurrent", False), (
+            "Observation Filter must support concurrent updates.")
+        threading.Thread.__init__(self)
+        self.queue = queue.Queue(5)
+        self.metrics_queue = queue.Queue()
+        self.num_local_steps = num_local_steps
+        self.horizon = horizon
+        self.env = env
+        self.policy = policy
+        self._obs_filter = obs_filter
+        self.started = False
+        self.daemon = True
+
+    def run(self):
+        self.started = True
+        try:
+            self._run()
+        except BaseException as e:
+            self.queue.put(e)
+            raise e
+
+    def _run(self):
+        rollout_provider = _env_runner(
+            self.env, self.policy, self.num_local_steps,
+            self.horizon, self._obs_filter)
+        while True:
+            # The timeout variable exists because apparently, if one worker
+            # dies, the other workers won't die with it, unless the timeout is
+            # set to some large number. This is an empirical observation.
+            item = next(rollout_provider)
+            if isinstance(item, CompletedRollout):
+                self.metrics_queue.put(item)
+            else:
+                self.queue.put(item, timeout=600.0)
+
+    def get_data(self):
+        """Gets currently accumulated data.
+
+        Returns:
+            rollout (PartialRollout): trajectory data (unprocessed)
+        """
+        assert self.started, "Sampler never started running!"
+        rollout = self.queue.get(timeout=600.0)
+        if isinstance(rollout, BaseException):
+            raise rollout
+        while not rollout.is_terminal():
+            try:
+                part = self.queue.get_nowait()
+                if isinstance(part, BaseException):
+                    raise rollout
+                rollout.extend(part)
+            except queue.Empty:
+                break
+        return rollout
+
+    def get_metrics(self):
+        completed = []
+        while True:
+            try:
+                completed.append(self.metrics_queue.get_nowait())
+            except queue.Empty:
+                break
+        return completed
 
