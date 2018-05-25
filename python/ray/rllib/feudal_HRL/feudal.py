@@ -106,9 +106,9 @@ DEFAULT_CONFIG = {
     # Horizon of the manager
     "c" : 2,
     # Boolean variable if the Worker use ADB
-    "ADB" : True
-
-
+    "ADB" : True,
+    # Dilatation rate
+    "dilatation_rate" : 5
 }
 
 

@@ -8,6 +8,7 @@ from ray.rllib.models import ModelCatalog
 from ray.rllib.models.singlestepLSTM import SingleStepLSTM
 
 
+
 class FeudalLoss(object):
 
     other_output = ["vf_preds_manager", "vf_preds_worker", "logprobs"]
@@ -47,13 +48,20 @@ class FeudalLoss(object):
             x = tf.expand_dims(self.s, [0])
 
             with tf.variable_scope("LSTM"):
+                """
+            
                 dimension_lstm_manager = config["g_dim"] if config["kappa"] != 0 else config["g_dim"] + 1
                 lstm_cell_manager = tf.nn.rnn_cell.BasicLSTMCell(dimension_lstm_manager)
                 initial_state = lstm_cell_manager.zero_state(1, dtype=tf.float32)
-                outputs, state = tf.nn.dynamic_rnn(lstm_cell_manager, x,
+                outputs, state = dynamic_rnn(lstm_cell_manager, x,
                                                    initial_state=initial_state,
                                                    dtype=tf.float32)
                 outputs = tf.squeeze(outputs)
+                """
+                dimension_lstm_manager = config["g_dim"] if config["kappa"] != 0 else config["g_dim"] + 1
+                self.manager_lstm = SingleStepLSTM(size=dimension_lstm_manager, dilatation_rate=config["dilatation_rate"])
+
+                outputs = self.manager_lstm.compute_step(x, step_size=tf.shape(self.observations)[:1])
 
 
                 if config["kappa"] != 0:
@@ -83,7 +91,7 @@ class FeudalLoss(object):
 
             if not isinstance(self.logp_manager, list):
                 self.logp_manager = [self.logp_manager]
-                #self.entropy = [self.entropy]
+
 
             self.logp_manager = [logp for logp in zip(self.logp_manager)]
             self.surr_manager = [logp_manager * advantages_manager for logp_manager in self.logp_manager]
@@ -265,6 +273,7 @@ class FeudalLoss(object):
             else:
                 self.policy_results = [
                     self.sampler, self.curr_logits, tf.constant("NA")]
+
 
     def compute_manager(self, observation):
         s, g  = self.sess.run(

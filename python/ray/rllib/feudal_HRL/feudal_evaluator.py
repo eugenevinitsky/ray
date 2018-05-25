@@ -18,6 +18,8 @@ from ray.rllib.utils.sampler import SyncSampler_Feudal
 from ray.rllib.utils.filter import get_filter, MeanStdFilter
 from ray.rllib.utils.process_rollout import process_rollout_Feudal, process_rollout_Feudal_AD
 
+
+
 from ray.rllib.feudal_HRL.loss import FeudalLoss
 
 # TODO(rliaw): Move this onto LocalMultiGPUOptimizer
@@ -71,6 +73,7 @@ class FeudalEvaluator(PolicyEvaluator):
         action_space = self.env.action_space
         action_dim = action_space.shape[0]
         # The input observations.
+
         self.diff = tf.placeholder(
             tf.float32, shape=(None, self.config["g_dim"]))
         self.gsum = tf.placeholder(
@@ -285,7 +288,7 @@ class FeudalEvaluator(PolicyEvaluator):
                         "rew_filter": self.rew_filter}
         self.sampler = SyncSampler_Feudal(
             self.env, self.common_policy, self.obs_filter,
-            self.config["horizon"], self.ADB, self.config["c"], self.config["horizon"])
+            self.config["horizon"], self.ADB, self.config["c"], self.config["dilatation_rate"], self.config["horizon"])
         self.sess.run(tf.global_variables_initializer())
 
     def load_data(self, trajectories, full_trace):

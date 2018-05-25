@@ -88,7 +88,7 @@ class SyncSampler_Feudal(object):
     async = False
 
     def __init__(self, env, policy, obs_filter,
-                 num_local_steps, ADB, c, horizon=None):
+                 num_local_steps, ADB, c, dilatation_rate, horizon=None):
         self.ADB = ADB
         self.num_local_steps = num_local_steps
         self.horizon = horizon
@@ -97,7 +97,7 @@ class SyncSampler_Feudal(object):
         self._obs_filter = obs_filter
         self.rollout_provider = _env_runner_Feudal(
             self.env, self.policy, self.num_local_steps, self.horizon,
-            self._obs_filter, c, self.ADB)
+            self._obs_filter, c, self.ADB, dilatation_rate)
         self.metrics_queue = queue.Queue()
 
     def get_data(self):
@@ -119,7 +119,7 @@ class SyncSampler_Feudal(object):
 
 
 
-def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB):
+def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB, dilatation_rate):
     """This implements the logic of the thread runner.
 
     It continually runs the policy, and as long as the rollout exceeds a
