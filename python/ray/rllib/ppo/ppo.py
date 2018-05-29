@@ -60,8 +60,6 @@ DEFAULT_CONFIG = {
     "kl_target": 0.01,
     # Config params to pass to the model
     "model": {"free_log_std": False},
-    #weigts
-    "model_weights": [100, 50, 25],
     # Which observation filter to apply to the observation
     "observation_filter": "MeanStdFilter",
     # If >1, adds frameskip
@@ -101,7 +99,6 @@ class PPOAgent(Agent):
 
     def _init(self):
         ADB = self.config["ADB"]
-        self.config["model"].update({"fcnet_hiddens": self.config["model_weights"]})
         self.shared_model = (self.config["model"].get("custom_options", {}).
                         get("multiagent_shared_model", False))
         if self.shared_model:
