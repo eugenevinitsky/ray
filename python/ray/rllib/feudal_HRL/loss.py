@@ -6,6 +6,7 @@ import tensorflow as tf
 
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.singlestepLSTM import SingleStepLSTM
+import numpy as np
 
 
 
@@ -58,22 +59,15 @@ class FeudalLoss(object):
                                                    dtype=tf.float32)
                 outputs = tf.squeeze(outputs)
                 """
-                dimension_lstm_manager = config["g_dim"] if config["kappa"] != 0 else config["g_dim"] + 1
-                self.manager_lstm = SingleStepLSTM(size=dimension_lstm_manager, dilatation_rate=config["dilatation_rate"])
+                self.manager_lstm = SingleStepLSTM(size=config["g_dim"], dilatation_rate=config["dilatation_rate"])
 
-                outputs = self.manager_lstm.compute_step(x, step_size=tf.shape(self.observations)[:1])
-
-
-                if config["kappa"] != 0:
-                    g_hat = outputs
-                    kappa = config["kappa"]
-                else:
-                    g_hat = outputs[:-1]
-                    kappa = outputs[-1]
+                g_hat = self.manager_lstm.compute_step(x, step_size=tf.shape(self.observations)[:1])
 
             g_hat = tf.reshape(g_hat, shape=(-1, config["g_dim"]))
             self.g = tf.nn.l2_normalize(g_hat, dim=1)
-            self.manager_logits = distribution_class_obs(self.g, kappa, observation_space.shape[0])
+            self.manager_logits = distribution_class_obs(self.g, config["kappa"], observation_space.shape[0])
+
+            # TODO: Encourage exploration: but HOW??
 
             vf_config = config["model"].copy()
             # Do not split the last layer of the value function into

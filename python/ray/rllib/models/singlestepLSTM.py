@@ -79,12 +79,10 @@ class SingleStepLSTM(object):
 
     def compute_step(self, x, step_size):
 
-        self.new_h_in = self.h_in[-1]
+        new_h_in = self.h_in[-1]
 
-        state_in = rnn.LSTMStateTuple(self.c_in, self.new_h_in)
+        state_in = rnn.LSTMStateTuple(self.c_in, new_h_in)
 
-        print("step_size")
-        print(step_size)
         lstm_outputs, lstm_state = tf.nn.dynamic_rnn(
             self.lstm, x, initial_state=state_in, sequence_length=step_size,
             time_major=False)
