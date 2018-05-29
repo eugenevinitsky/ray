@@ -32,8 +32,8 @@ DEFAULT_CONFIG = {
     "kl_coeff": 0.2,
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
-    # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE. If 0 -> NO fitting of the baseline
-    "num_sgd_iter_baseline": 30,
+    # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE. If 0 -> NO fitting of the baseline: USELESS?
+    "num_sgd_iter_baseline": 0,
     # Stepsize of SGD
     "sgd_stepsize": 5e-5,
     # TODO(pcm): Expose the choice between gpus and cpus
