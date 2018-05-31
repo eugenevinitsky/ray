@@ -32,8 +32,6 @@ DEFAULT_CONFIG = {
     "kl_coeff": 0.2,
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
-    # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE. If 0 -> NO fitting of the baseline: USELESS?
-    "num_sgd_iter_baseline": 0,
     # Stepsize of SGD
     "sgd_stepsize": 5e-5,
     # TODO(pcm): Expose the choice between gpus and cpus
@@ -98,6 +96,7 @@ class PPOAgent(Agent):
     _default_config = DEFAULT_CONFIG
 
     def _init(self):
+        print("I AM CALLED")
         ADB = self.config["ADB"]
         self.shared_model = (self.config["model"].get("custom_options", {}).
                         get("multiagent_shared_model", False))
@@ -143,10 +142,6 @@ class PPOAgent(Agent):
         iter_start = time.time()
         weights_loss = ray.put(model.get_weights_loss())
         [a.set_weights_loss.remote(weights_loss) for a in agents]
-        if self.config["num_sgd_iter_baseline"] > 0:
-            weights_baselines = ray.put(model.get_weights_baselines())
-            [a.set_weights_baseline.remote(weights_baselines) for a in agents]
-
 
         samples = collect_samples(agents, config, self.local_evaluator)
 
@@ -249,32 +244,6 @@ class PPOAgent(Agent):
             "sample_throughput": len(samples["obs"]) / sgd_time
         }
 
-        if self.config["num_sgd_iter_baseline"] > 0:
-            print("Fitting the baseline")
-
-            for i in range(config["num_sgd_iter_baseline"]):
-                batch_index = 0
-                num_batches = (
-                    int(tuples_per_device) // int(model.per_device_batch_size))
-                vf_loss= []
-                permutation = np.random.permutation(num_batches)
-                # Prepare to drop into the debugger
-                if self.iteration == config["tf_debug_iteration"]:
-                    model.sess = tf_debug.LocalCLIDebugWrapperSession(model.sess)
-                while batch_index < num_batches:
-                    full_trace = (
-                        i == 0 and self.iteration == 0 and
-                        batch_index == config["full_trace_nth_sgd_batch"])
-                    batch_vf_loss = model.run_sgd_minibatch_baseline(
-                            permutation[batch_index] * model.per_device_batch_size,
-                            full_trace,
-                            self.file_writer)
-                    vf_loss.append(batch_vf_loss)
-                    batch_index += 1
-                vf_loss = np.mean(vf_loss)
-                print(
-                    "{:>15}{:15.5e}".format(
-                        i,  vf_loss))
 
         FilterManager.synchronize(
             self.local_evaluator.filters, self.remote_evaluators)

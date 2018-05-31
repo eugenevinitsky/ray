@@ -17,7 +17,6 @@ from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.sampler import SyncSampler
 from ray.rllib.utils.filter import get_filter, MeanStdFilter
 from ray.rllib.utils.process_rollout import process_rollout
-from ray.rllib.utils.process_rollout import process_rollout_AD
 from ray.rllib.ppo.loss import ProximalPolicyLoss
 
 # TODO(rliaw): Move this onto LocalMultiGPUOptimizer
@@ -106,7 +105,7 @@ class PPOEvaluator(PolicyEvaluator):
 
 
         self.par_opt = LocalSyncParallelOptimizer(
-            tf.train.AdamOptimizer(self.config["sgd_stepsize"]), self.config["num_sgd_iter_baseline"],
+            tf.train.AdamOptimizer(self.config["sgd_stepsize"]),
             self.devices,
             [self.observations, self.value_targets, self.advantages,
              self.actions, self.prev_logits, self.prev_vf_preds],
@@ -115,8 +114,7 @@ class PPOEvaluator(PolicyEvaluator):
             self.logdir)
 
         # Metric ops
-        if self.config["num_sgd_iter_baseline"] == 0:
-            with tf.name_scope("test_outputs"):
+        with tf.name_scope("test_outputs"):
                 policies = self.par_opt.get_device_losses()
                 self.mean_loss = tf.reduce_mean(
                     tf.stack(values=[
@@ -133,34 +131,12 @@ class PPOEvaluator(PolicyEvaluator):
                 self.mean_entropy = tf.reduce_mean(
                     tf.stack(values=[
                         policy.mean_entropy for policy in policies]), 0)
-        else:
-            with tf.name_scope("test_outputs"):
-                policies_loss, policies_baselines = self.par_opt.get_device_losses()
-                self.mean_loss = tf.reduce_mean(
-                    tf.stack(values=[
-                        policy.loss for policy in policies_loss]), 0)
-                self.mean_policy_loss = tf.reduce_mean(
-                    tf.stack(values=[
-                        policy.mean_policy_loss for policy in policies_loss]), 0)
-                self.mean_kl = tf.reduce_mean(
-                    tf.stack(values=[
-                        policy.mean_kl for policy in policies_loss]), 0)
-                self.mean_entropy = tf.reduce_mean(
-                    tf.stack(values=[
-                        policy.mean_entropy for policy in policies_loss]), 0)
-                self.mean_vf_loss = tf.reduce_mean(
-                    tf.stack(values=[
-                        policy.mean_vf_loss for policy in policies_baselines]), 0)
-
 
         # References to the model weights
         self.common_policy = self.par_opt.get_common_loss()
 
         self.variables_loss = ray.experimental.TensorFlowVariables(
             self.common_policy.loss, self.sess)
-        if self.config["num_sgd_iter_baseline"] > 0:
-            self.variables_vf_loss = ray.experimental.TensorFlowVariables(
-                self.common_policy.mean_vf_loss, self.sess)
 
         self.obs_filter = get_filter(
             config["observation_filter"], self.env.observation_space.shape)
@@ -190,20 +166,10 @@ class PPOEvaluator(PolicyEvaluator):
         return self.par_opt.optimize(
             self.sess,
             batch_index,
-            baseline = False,
             extra_ops=[
                 self.mean_loss, self.mean_policy_loss, self.mean_vf_loss,
                 self.mean_kl, self.mean_entropy],
             extra_feed_dict={self.kl_coeff: kl_coeff},
-            file_writer=file_writer if full_trace else None)
-
-    def run_sgd_minibatch_baseline(
-            self, batch_index, full_trace, file_writer):
-        return self.par_opt.optimize(
-            self.sess,
-            batch_index,
-            baseline=True,
-            extra_ops=[self.mean_vf_loss],
             file_writer=file_writer if full_trace else None)
 
     def compute_gradients(self, samples):
@@ -226,12 +192,6 @@ class PPOEvaluator(PolicyEvaluator):
     def set_weights_loss(self, weights):
         self.variables_loss.set_weights(weights)
 
-    def get_weights_baselines(self):
-        return self.variables_vf_loss.get_weights()
-
-    def set_weights_baseline(self, weights):
-        self.variables_vf_loss.set_weights(weights)
-
     def sample(self):
         """Returns experience samples from this Evaluator. Observation
         filter and reward filters are flushed here.
@@ -244,15 +204,9 @@ class PPOEvaluator(PolicyEvaluator):
 
         while num_steps_so_far < self.config["min_steps_per_task"]:
             rollout = self.sampler.get_data()
-            if self.ADB:
-                samples = process_rollout_AD(
-                    rollout, self.rew_filter, self.config["gamma"],
+            samples = process_rollout(
+                    rollout, self.rew_filter, self.config["gamma"], self.ADB,
                     self.config["lambda"], use_gae=self.config["use_gae"])
-            else:
-                samples = process_rollout(
-                    rollout, self.rew_filter, self.config["gamma"],
-                    self.config["lambda"], use_gae=self.config["use_gae"])
-
             num_steps_so_far += samples.count
             all_samples.append(samples)
         return SampleBatch.concat_samples(all_samples)

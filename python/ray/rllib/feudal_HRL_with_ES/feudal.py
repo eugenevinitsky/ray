@@ -17,7 +17,6 @@ from ray.rllib.utils import FilterManager
 from ray.rllib.feudal_HRL_with_ES.feudal_evaluator import FeudalEvaluator
 
 from ray.rllib.feudal_HRL_with_ES.rollout import collect_samples
-from ray.rllib.es import optimizers
 
 DEFAULT_CONFIG = {
     # Discount factor of the MDP

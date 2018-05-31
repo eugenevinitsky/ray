@@ -139,14 +139,9 @@ class ProximalPolicyLoss(object):
             self.vf_loss = tf.minimum(self.vf_loss1, self.vf_loss2)
             self.mean_vf_loss = tf.reduce_mean(self.vf_loss)
 
-            if config["num_sgd_iter_baseline"] == 0:
-                self.loss = tf.reduce_mean(
+            self.loss = tf.reduce_mean(
                     -self.surr + kl_prod +
                     config["vf_loss_coeff"] * self.vf_loss -
-                    entropy_prod)
-            else:
-                self.loss = tf.reduce_mean(
-                    -self.surr + kl_prod -
                     entropy_prod)
 
 

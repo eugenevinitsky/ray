@@ -38,9 +38,9 @@ DEFAULT_CONFIG = {
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
     # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE of the MANAGER. If 0 -> NO fitting of the baseline
-    "num_sgd_iter_baseline_manager": 30,
+    "num_sgd_iter_baseline_manager": 0,
     # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE of the WORKER. If 0 -> NO fitting of the baseline
-    "num_sgd_iter_baseline_worker": 30,
+    "num_sgd_iter_baseline_worker": 0,
     # Stepsize of SGD
     "sgd_stepsize": 5e-5,
     # TODO(pcm): Expose the choice between gpus and cpus
@@ -64,7 +64,7 @@ DEFAULT_CONFIG = {
     # Coefficient of the entropy regularizer
     "entropy_coeff": 0.0,
     # PPO clip parameter
-    "clip_param": 0.3,
+    "clip_param": 0.2,
     # Target value for KL divergence
     "kl_target": 0.01,
     # Config params to pass to the model
