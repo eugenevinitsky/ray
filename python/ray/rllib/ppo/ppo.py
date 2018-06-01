@@ -16,6 +16,7 @@ from ray.rllib.agent import Agent
 from ray.rllib.utils import FilterManager
 from ray.rllib.ppo.ppo_evaluator import PPOEvaluator
 from ray.rllib.ppo.rollout import collect_samples
+from ray.rllib.ppo.utils import log_histogram
 
 
 DEFAULT_CONFIG = {
@@ -96,17 +97,9 @@ class PPOAgent(Agent):
     _default_config = DEFAULT_CONFIG
 
     def _init(self):
-        print("I AM CALLED")
         ADB = self.config["ADB"]
-        self.shared_model = (self.config["model"].get("custom_options", {}).
-                        get("multiagent_shared_model", False))
-        if self.shared_model:
-            self.num_models = 1
-        else:
-            self.num_models = len(self.config["model"].get(
-                "custom_options", {}).get("multiagent_obs_shapes", [1]))
         self.global_step = 0
-        self.kl_coeff = [self.config["kl_coeff"]] * self.num_models
+        self.kl_coeff = self.config["kl_coeff"]
         self.local_evaluator = PPOEvaluator(
             self.registry, self.env_creator, self.config, self.logdir, False, ADB)
         RemotePPOEvaluator = ray.remote(
@@ -203,6 +196,7 @@ class PPOAgent(Agent):
                     i, loss, policy_loss, vf_loss, kl, entropy))
 
             values = []
+            histograms = []
             if i == config["num_sgd_iter"] - 1:
                 metric_prefix = "ppo/sgd/final_iter/"
                 values.append(tf.Summary.Value(
@@ -224,22 +218,19 @@ class PPOAgent(Agent):
 
                 if self.file_writer:
                     sgd_stats = tf.Summary(value=values)
-                    weights = model.get_weights_loss()
-                    weights_summary = tf.summary.histogram("weights", weights)
                     self.file_writer.add_summary(sgd_stats, self.global_step)
-                    self.file_writer.add_summary(weights_summary, self.global_step)
+                    weights_loss = model.get_weights_loss()
+                    for key, variable in weights_loss.items():
+                        log_histogram(self.file_writer, key, variable, self.global_step)
+
             self.global_step += 1
             sgd_time += sgd_end - sgd_start
 
         # treat single-agent as a multi-agent system w/ one agent
-        if not isinstance(kl, np.ndarray):
-            kl = [kl]
-
-        for i, kl_i in enumerate(kl):
-            if kl_i > 2.0 * config["kl_target"]:
-                self.kl_coeff[i] *= 1.5
-            elif kl_i < 0.5 * config["kl_target"]:
-                self.kl_coeff[i] *= 0.5
+        if kl > 2.0 * config["kl_target"]:
+            self.kl_coeff *= 1.5
+        elif kl < 0.5 * config["kl_target"]:
+            self.kl_coeff *= 0.5
 
         info = {
             "kl_divergence": np.mean(kl),

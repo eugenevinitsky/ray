@@ -55,7 +55,6 @@ class PPOEvaluator(PolicyEvaluator):
 
         # Defines the training inputs:
         # The coefficient of the KL penalty.
-
         self.kl_coeff = tf.placeholder(
             name="newkl", shape=(), dtype=tf.float32)
 
