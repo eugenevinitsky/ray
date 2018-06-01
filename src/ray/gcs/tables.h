@@ -27,6 +27,10 @@ class RedisContext;
 
 class AsyncGcsClient;
 
+/// Specifies whether commands issued to a table should be regular or chain-replicated
+/// (when available).
+enum class CommandType { kRegular, kChain };
+
 /// \class PubsubInterface
 ///
 /// The interface for a pubsub storage system. The client of a storage system
@@ -44,7 +48,11 @@ class PubsubInterface {
 
 /// \class Log
 ///
-/// A GCS table where every entry is an append-only log.
+/// A GCS table where every entry is an append-only log. This class is not
+/// meant to be used directly. All log classes should derive from this class
+/// and override the prefix_ member with a unique prefix for that log, and the
+/// pubsub_channel_ member if pubsub is required.
+///
 /// Example tables backed by Log:
 ///   ObjectTable: Stores a log of which clients have added or evicted an
 ///                object.
@@ -171,15 +179,20 @@ class Log : virtual public PubsubInterface<ID> {
   /// The GCS client.
   AsyncGcsClient *client_;
   /// The pubsub channel to subscribe to for notifications about keys in this
-  /// table. If no notifications are required, this may be set to
-  /// TablePubsub_NO_PUBLISH.
+  /// table. If no notifications are required, this should be set to
+  /// TablePubsub_NO_PUBLISH. If notifications are required, then this must be
+  /// unique across all instances of Log.
   TablePubsub pubsub_channel_;
-  /// The prefix to use for keys in this table.
+  /// The prefix to use for keys in this table. This must be unique across all
+  /// instances of Log.
   TablePrefix prefix_;
   /// The index in the RedisCallbackManager for the callback that is called
   /// when we receive notifications. This is >= 0 iff we have subscribed to the
   /// table, otherwise -1.
   int64_t subscribe_callback_index_;
+
+  /// Commands to a GCS table can either be regular (default) or chain-replicated.
+  CommandType command_type_ = CommandType::kRegular;
 };
 
 template <typename ID, typename Data>
@@ -194,7 +207,11 @@ class TableInterface {
 
 /// \class Table
 ///
-/// A GCS table where every entry is a single data item.
+/// A GCS table where every entry is a single data item. This class is not
+/// meant to be used directly. All table classes should derive from this class
+/// and override the prefix_ member with a unique prefix for that table, and
+/// the pubsub_channel_ member if pubsub is required.
+///
 /// Example tables backed by Log:
 ///   TaskTable: Stores Task metadata needed for executing the task.
 template <typename ID, typename Data>
@@ -249,6 +266,7 @@ class Table : private Log<ID, Data>,
   using Log<ID, Data>::client_;
   using Log<ID, Data>::pubsub_channel_;
   using Log<ID, Data>::prefix_;
+  using Log<ID, Data>::command_type_;
 };
 
 class ObjectTable : public Log<ObjectID, ObjectTableData> {
@@ -288,7 +306,7 @@ class ActorTable : public Log<ActorID, ActorTableData> {
   ActorTable(const std::shared_ptr<RedisContext> &context, AsyncGcsClient *client)
       : Log(context, client) {
     pubsub_channel_ = TablePubsub_ACTOR;
-    prefix_ = TablePrefix_TASK_RECONSTRUCTION;
+    prefix_ = TablePrefix_ACTOR;
   }
 };
 
@@ -297,8 +315,7 @@ class TaskReconstructionLog : public Log<TaskID, TaskReconstructionData> {
   TaskReconstructionLog(const std::shared_ptr<RedisContext> &context,
                         AsyncGcsClient *client)
       : Log(context, client) {
-    pubsub_channel_ = TablePubsub_ACTOR;
-    prefix_ = TablePrefix_ACTOR;
+    prefix_ = TablePrefix_TASK_RECONSTRUCTION;
   }
 };
 
@@ -311,6 +328,12 @@ class TaskTable : public Table<TaskID, ray::protocol::Task> {
     pubsub_channel_ = TablePubsub_RAYLET_TASK;
     prefix_ = TablePrefix_RAYLET_TASK;
   }
+
+  TaskTable(const std::shared_ptr<RedisContext> &context, AsyncGcsClient *client,
+            gcs::CommandType command_type)
+      : TaskTable(context, client) {
+    command_type_ = command_type;
+  };
 };
 
 }  // namespace raylet
@@ -322,7 +345,12 @@ class TaskTable : public Table<TaskID, TaskTableData> {
     pubsub_channel_ = TablePubsub_TASK;
     prefix_ = TablePrefix_TASK;
   };
-  ~TaskTable(){};
+
+  TaskTable(const std::shared_ptr<RedisContext> &context, AsyncGcsClient *client,
+            gcs::CommandType command_type)
+      : TaskTable(context, client) {
+    command_type_ = command_type;
+  }
 
   using TestAndUpdateCallback =
       std::function<void(AsyncGcsClient *client, const TaskID &id,

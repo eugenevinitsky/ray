@@ -57,6 +57,9 @@ class ActorAPI(unittest.TestCase):
         self.assertEqual(
             ray.get(actor.get_values.remote(0, arg2="d", arg1=0)),
             (1, 2, "cd"))
+        self.assertEqual(
+            ray.get(actor.get_values.remote(arg2="d", arg1=0, arg0=2)),
+            (3, 2, "cd"))
 
         # Make sure we get an exception if the constructor is called
         # incorrectly.
@@ -65,6 +68,9 @@ class ActorAPI(unittest.TestCase):
 
         with self.assertRaises(Exception):
             actor = Actor.remote(0, 1, 2, arg3=3)
+
+        with self.assertRaises(Exception):
+            actor = Actor.remote(0, arg0=1)
 
         # Make sure we get an exception if the method is called incorrectly.
         actor = Actor.remote(1)
@@ -414,6 +420,32 @@ class ActorMethods(unittest.TestCase):
         c2.increase.remote()
         self.assertEqual(ray.get(c2.value.remote()), 2)
 
+    def testActorClassMethods(self):
+        ray.init()
+
+        class Foo(object):
+            x = 2
+
+            @classmethod
+            def as_remote(cls):
+                return ray.remote(cls)
+
+            @classmethod
+            def f(cls):
+                return cls.x
+
+            @classmethod
+            def g(cls, y):
+                return cls.x + y
+
+            def echo(self, value):
+                return value
+
+        a = Foo.as_remote().remote()
+        self.assertEqual(ray.get(a.echo.remote(2)), 2)
+        self.assertEqual(ray.get(a.f.remote()), 2)
+        self.assertEqual(ray.get(a.g.remote(2)), 4)
+
     def testMultipleActors(self):
         # Create a bunch of actors and call a bunch of methods on all of them.
         ray.init(num_workers=0)
@@ -747,7 +779,7 @@ class ActorsOnMultipleNodes(unittest.TestCase):
             counts = [locations.count(name) for name in names]
             print("Counts are {}.".format(counts))
             if (len(names) == num_local_schedulers
-                    and all([count >= minimum_count for count in counts])):
+                    and all(count >= minimum_count for count in counts)):
                 break
             attempts += 1
         self.assertLess(attempts, num_attempts)
@@ -1038,14 +1070,14 @@ class ActorsWithGPUs(unittest.TestCase):
         def locations_to_intervals_for_many_tasks():
             # Launch a bunch of GPU tasks.
             locations_ids_and_intervals = ray.get([
-                f1.remote() for _ in range(
-                    5 * num_local_schedulers * num_gpus_per_scheduler)
+                f1.remote() for _ in range(5 * num_local_schedulers *
+                                           num_gpus_per_scheduler)
             ] + [
-                f2.remote() for _ in range(
-                    5 * num_local_schedulers * num_gpus_per_scheduler)
+                f2.remote() for _ in range(5 * num_local_schedulers *
+                                           num_gpus_per_scheduler)
             ] + [
-                f1.remote() for _ in range(
-                    5 * num_local_schedulers * num_gpus_per_scheduler)
+                f1.remote() for _ in range(5 * num_local_schedulers *
+                                           num_gpus_per_scheduler)
             ])
 
             locations_to_intervals = collections.defaultdict(lambda: [])
@@ -1108,8 +1140,9 @@ class ActorsWithGPUs(unittest.TestCase):
 
         # Create more actors to fill up all the GPUs.
         more_actors = [
-            Actor1.remote() for _ in range(
-                num_local_schedulers * num_gpus_per_scheduler - 1 - 3)
+            Actor1.remote()
+            for _ in range(num_local_schedulers * num_gpus_per_scheduler - 1 -
+                           3)
         ]
         # Wait for the actors to finish being created.
         ray.get([actor.get_location_and_ids.remote() for actor in more_actors])
@@ -1898,6 +1931,44 @@ class DistributedActorHandles(unittest.TestCase):
         # Verify that we can call a method on the unpickled handle. TODO(rkn):
         # we should also test this from a different driver.
         ray.get(new_f.method.remote())
+
+    def testRegisterAndGetNamedActors(self):
+        # TODO(heyucongtom): We should test this from another driver.
+        ray.worker.init(num_workers=1)
+
+        @ray.remote
+        class Foo(object):
+            def __init__(self):
+                self.x = 0
+
+            def method(self):
+                self.x += 1
+                return self.x
+
+        f1 = Foo.remote()
+        # Test saving f.
+        ray.experimental.register_actor("f1", f1)
+        # Test getting f.
+        f2 = ray.experimental.get_actor("f1")
+        self.assertEqual(f1._actor_id, f2._actor_id)
+
+        # Test same name register shall raise error.
+        with self.assertRaises(ValueError):
+            ray.experimental.register_actor("f1", f2)
+
+        # Test register with wrong object type.
+        with self.assertRaises(TypeError):
+            ray.experimental.register_actor("f3", 1)
+
+        # Test getting a nonexistent actor.
+        with self.assertRaises(ValueError):
+            ray.experimental.get_actor("nonexistent")
+
+        # Test method
+        self.assertEqual(ray.get(f1.method.remote()), 1)
+        self.assertEqual(ray.get(f2.method.remote()), 2)
+        self.assertEqual(ray.get(f1.method.remote()), 3)
+        self.assertEqual(ray.get(f2.method.remote()), 4)
 
 
 class ActorPlacementAndResources(unittest.TestCase):

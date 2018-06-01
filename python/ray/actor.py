@@ -17,6 +17,12 @@ from ray.utils import _random_string, is_cython, push_error_to_driver
 DEFAULT_ACTOR_METHOD_NUM_RETURN_VALS = 1
 
 
+def is_classmethod(f):
+    """Returns whether the given method is a classmethod."""
+
+    return hasattr(f, "__self__") and f.__self__ is not None
+
+
 def compute_actor_handle_id(actor_handle_id, num_forks):
     """Deterministically compute an actor handle ID.
 
@@ -242,7 +248,10 @@ def make_actor_method_executor(worker, method_name, method, actor_imported):
 
         # Execute the assigned method and save a checkpoint if necessary.
         try:
-            method_returns = method(actor, *args)
+            if is_classmethod(method):
+                method_returns = method(*args)
+            else:
+                method_returns = method(actor, *args)
         except Exception:
             # Save the checkpoint before allowing the method exception to be
             # thrown.
@@ -491,8 +500,8 @@ class ActorClass(object):
         # Extract the signatures of each of the methods. This will be used
         # to catch some errors if the methods are called with inappropriate
         # arguments.
-        self._method_signatures = dict()
-        self._actor_method_num_return_vals = dict()
+        self._method_signatures = {}
+        self._actor_method_num_return_vals = {}
         for method_name, method in self._actor_methods:
             # Print a warning message if the method signature is not
             # supported. We don't raise an exception because if the actor
@@ -500,7 +509,7 @@ class ActorClass(object):
             # don't support, there may not be much the user can do about it.
             signature.check_signature_supported(method, warn=True)
             self._method_signatures[method_name] = signature.extract_signature(
-                method, ignore_first=True)
+                method, ignore_first=not is_classmethod(method))
 
             # Set the default number of return values for this method.
             if hasattr(method, "__ray_num_return_vals__"):
@@ -857,32 +866,21 @@ class ActorHandle(object):
             A dictionary of the information needed to reconstruct the object.
         """
         state = {
-            "actor_id":
-            self._ray_actor_id.id(),
-            "class_name":
-            self._ray_class_name,
-            "actor_forks":
-            self._ray_actor_forks,
-            "actor_cursor":
-            self._ray_actor_cursor.id(),
-            "actor_counter":
-            0,  # Reset the actor counter.
-            "actor_method_names":
-            self._ray_actor_method_names,
-            "method_signatures":
-            self._ray_method_signatures,
-            "method_num_return_vals":
-            self._ray_method_num_return_vals,
-            "actor_creation_dummy_object_id":
-            self._ray_actor_creation_dummy_object_id.id(),
-            "actor_method_cpus":
-            self._ray_actor_method_cpus,
-            "actor_driver_id":
-            self._ray_actor_driver_id.id(),
-            "previous_actor_handle_id":
-            self._ray_actor_handle_id.id(),
-            "ray_forking":
-            ray_forking
+            "actor_id": self._ray_actor_id.id(),
+            "class_name": self._ray_class_name,
+            "actor_forks": self._ray_actor_forks,
+            "actor_cursor": self._ray_actor_cursor.id(),
+            "actor_counter": 0,  # Reset the actor counter.
+            "actor_method_names": self._ray_actor_method_names,
+            "method_signatures": self._ray_method_signatures,
+            "method_num_return_vals": self._ray_method_num_return_vals,
+            "actor_creation_dummy_object_id": self.
+            _ray_actor_creation_dummy_object_id.id(),
+            "actor_method_cpus": self._ray_actor_method_cpus,
+            "actor_driver_id": self._ray_actor_driver_id.id(),
+            "previous_actor_handle_id": self._ray_actor_handle_id.id()
+            if self._ray_actor_handle_id else None,
+            "ray_forking": ray_forking
         }
 
         if ray_forking:
