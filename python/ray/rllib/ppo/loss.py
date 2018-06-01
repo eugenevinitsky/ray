@@ -18,6 +18,7 @@ class ProximalPolicyLoss(object):
             kl_coeff, distribution_class, config, sess, registry, ADB):
 
         print("THIS IS THE NEW PPL")
+        self.filer_summaries = []
         self.ADB = ADB
         self.prev_dist = distribution_class(prev_logits)
         self.shared_model = (config["model"].get("custom_options", {}).
@@ -35,9 +36,10 @@ class ProximalPolicyLoss(object):
         self.curr_logits = ModelCatalog.get_model(
             registry, observations, logit_dim, config["model"]).outputs
         self.curr_dist = distribution_class(self.curr_logits)
+
         self.sampler = self.curr_dist.sample()
 
-        if ADB:
+        if self.ADB:
             self.input_Q_value = tf.concat([observations, actions], 1)
 
         if config["use_gae"]:
@@ -46,81 +48,49 @@ class ProximalPolicyLoss(object):
             # mean parameters and standard deviation parameters and
             # do not make the standard deviations free variables.
             vf_config["free_log_std"] = False
-            if ADB:
+            if self.ADB:
                 with tf.variable_scope("Q_function"):
                     self.Q_function = ModelCatalog.get_model(
                         registry, self.input_Q_value, 1, vf_config).outputs
                 self.Q_function = tf.reshape(self.Q_function, [-1])
-                #tf.summary.histogram("Q_function", self.Q_function)
             else:
                 with tf.variable_scope("value_function"):
                     self.value_function = ModelCatalog.get_model(
                         registry, observations, 1, vf_config).outputs
                 self.value_function = tf.reshape(self.value_function, [-1])
-                #tf.summary.histogram("value_function", self.value_function)
 
         curr_r_matrix = self.curr_dist.r_matrix(actions)
         prev_r_matrix = self.prev_dist.r_matrix(actions)
-        curr_r_matrix = [curr_r_matrix]
-        prev_r_matrix = [prev_r_matrix]
 
         curr_logp = self.curr_dist.logp(actions)
         prev_logp = self.prev_dist.logp(actions)
         self.kl = self.prev_dist.kl(self.curr_dist)
+        self.mean_kl = tf.reduce_mean(self.kl)
         self.entropy = self.curr_dist.entropy()
-
-        # handle everything uniform as if it were the multiagent case
-        if not isinstance(curr_logp, list):
-            self.kl = [self.kl]
-            curr_logp = [curr_logp]
-            prev_logp = [prev_logp]
-            self.entropy = [self.entropy]
 
         # Make loss functions.
         if ADB:
-            self.ratio = [curr / prev
-                          for curr, prev in zip(curr_r_matrix, prev_r_matrix)]
-            self.surr2 = [tf.clip_by_value(ratio_i, (1 - config["clip_param"]) ** (1 / action_dim),
+            self.ratio = curr_r_matrix / prev_r_matrix
+            self.surr2 = tf.clip_by_value(self.ratio, (1 - config["clip_param"]) ** (1 / action_dim),
                                            (1 + config["clip_param"]) ** (1 / action_dim)) * advantages
-                          for ratio_i in self.ratio]
         else:
-            self.ratio = [tf.exp(curr - prev)
-                          for curr, prev in zip(curr_logp, prev_logp)]
-            self.surr2 = [tf.clip_by_value(ratio_i, 1 - config["clip_param"],
+            self.ratio = tf.exp(curr_logp - prev_logp)
+
+            self.surr2 = tf.clip_by_value(self.ratio, 1 - config["clip_param"],
                                            1 + config["clip_param"]) * advantages
-                          for ratio_i in self.ratio]
 
 
-        self.mean_kl = [tf.reduce_mean(kl_i) for kl_i in self.kl]
         self.mean_entropy = tf.reduce_mean(self.entropy)
 
-        self.surr1 = [ratio_i * advantages for ratio_i in self.ratio]
+        self.surr1 = self.ratio * advantages
 
 
         if ADB:
-            self.surr = [tf.reduce_sum(tf.minimum(surr1_i, surr2_i), reduction_indices=[1]) for surr1_i, surr2_i in
-                     zip(self.surr1, self.surr2)]
+            self.surr = tf.reduce_sum(tf.minimum(self.surr1, self.surr2), reduction_indices=[1])
         else:
-            self.surr = [tf.minimum(surr1_i, surr2_i) for surr1_i, surr2_i in
-                     zip(self.surr1, self.surr2)]
+            self.surr = tf.minimum(self.surr1, self.surr2)
 
-        self.surr = tf.add_n(self.surr)
         self.mean_policy_loss = tf.reduce_mean(-self.surr)
-
-        self.entropy = tf.add_n(self.entropy)
-        entropy_prod = config["entropy_coeff"] * self.entropy
-
-        # there's only one kl value for a shared model
-        if self.shared_model:
-            kl_prod = tf.add_n([kl_coeff[0] * kl_i for
-                                i, kl_i in enumerate(self.kl)])
-            # all the above values have been rescaled by num_agents
-            self.surr /= self.num_agents
-            kl_prod /= self.num_agents
-            entropy_prod /= self.num_agents
-        else:
-            kl_prod = tf.add_n([kl_coeff[i] * kl_i for
-                                i, kl_i in enumerate(self.kl)])
 
         if config["use_gae"]:
             # We use a huber loss here to be more robust against outliers,
@@ -142,16 +112,14 @@ class ProximalPolicyLoss(object):
             self.mean_vf_loss = tf.reduce_mean(self.vf_loss)
 
             self.loss = tf.reduce_mean(
-                    -self.surr + kl_prod +
+                    -self.surr + kl_coeff * self.kl +
                     config["vf_loss_coeff"] * self.vf_loss -
-                    entropy_prod)
+                    config["entropy_coeff"] * self.entropy)
 
 
         else:
             self.mean_vf_loss = tf.constant(0.0)
-            self.loss = tf.reduce_mean(
-                -self.surr +
-                kl_prod - entropy_prod)
+            self.loss = tf.reduce_mean(0)
 
         self.sess = sess
 
@@ -204,9 +172,3 @@ class ProximalPolicyLoss(object):
 
     def mean_vf_loss(self):
         return self.mean_vf_loss
-
-    def return_value_function(self):
-        if self.ADB:
-            return self.Q_function
-        else:
-            return self.value_function
