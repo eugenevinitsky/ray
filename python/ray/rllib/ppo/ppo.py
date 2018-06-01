@@ -98,6 +98,7 @@ class PPOAgent(Agent):
 
     def _init(self):
         print("I AM RUNNING THIS GUY")
+        print("THIS GUY IS THE LAST ")
         ADB = self.config["ADB"]
         self.global_step = 0
         self.kl_coeff = self.config["kl_coeff"]
