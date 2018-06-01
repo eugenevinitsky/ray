@@ -37,10 +37,6 @@ DEFAULT_CONFIG = {
     "kl_coeff": 0.2,
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
-    # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE of the MANAGER. If 0 -> NO fitting of the baseline
-    "num_sgd_iter_baseline_manager": 0,
-    # Number of SGD iterations in each outer loop FOR FITTING THE BASELINE of the WORKER. If 0 -> NO fitting of the baseline
-    "num_sgd_iter_baseline_worker": 0,
     # Stepsize of SGD
     "sgd_stepsize": 5e-5,
     # TODO(pcm): Expose the choice between gpus and cpus
@@ -79,7 +75,7 @@ DEFAULT_CONFIG = {
     # number of steps is obtained
     "min_steps_per_task": 200,
     # Number of actors used to collect the rollouts
-    "num_workers": 5,
+    "num_workers": 6,
     # Resource requirements for remote actors
     "worker_resources": {"num_cpus": None},
     # Dump TensorFlow timeline after this many SGD minibatches
@@ -108,17 +104,24 @@ DEFAULT_CONFIG = {
     # Boolean variable if the Worker use ADB
     "ADB" : True,
     # Dilatation rate
-    "dilatation_rate" : 5
+    "dilatation_rate" : 5,
+    # WHETEHR THE MODE MANAGER ES IS ACTIVATED OR NOT
+    "ES": False,
+    # Standard deviation of the noise for parameters perturbation
+    "noise_stdev" : 0.1,
+    # Hyperparameter for the manager's weights update rule
+    "alpha": 1.0
 }
 
 
 class FeudalAgent(Agent):
-    _agent_name = "Feudal"
+    _agent_name = "FEUDAL"
     _allow_unknown_subkeys = ["model", "tf_session_args", "env_config",
                               "worker_resources"]
     _default_config = DEFAULT_CONFIG
 
     def _init(self):
+        self.ES = self.config["ES"]
         self.shared_model = (self.config["model"].get("custom_options", {}).
                         get("multiagent_shared_model", False))
         if self.shared_model:
@@ -130,14 +133,14 @@ class FeudalAgent(Agent):
         self.kl_coeff = [self.config["kl_coeff"]] * self.num_models
 
         self.local_evaluator = FeudalEvaluator(
-            self.registry, self.env_creator, self.config, self.logdir, False, self.config["ADB"])
+            self.registry, self.env_creator, self.config, self.logdir, False, self.config["ADB"], self.ES)
 
         RemoteFeudalEvaluator = ray.remote(
             **self.config["worker_resources"])(FeudalEvaluator)
         self.remote_agents = [
             RemoteFeudalEvaluator.remote(
                 self.registry, self.env_creator, self.config, self.logdir,
-                True, self.config["ADB"])
+                True, self.config["ADB"], self.ES)
             for _ in range(self.config["num_workers"])]
         self.start_time = time.time()
         if self.config["write_logs"]:
@@ -163,17 +166,37 @@ class FeudalAgent(Agent):
         print("===> iteration", self.iteration)
 
         iter_start = time.time()
+        self.noise_table = [dict() for _ in range(len(agents))]
 
-        weights_manager_loss = ray.put(model.get_weights_manager_loss())
-        [a.set_weights_manager_loss.remote(weights_manager_loss) for a in agents]
+        if self.ES:
+            weights_manager_outputs = model.get_weights_manager_loss()
+            count_1 = 0
+            count_2 = 0
+            for a in agents:
+                index = count_1
+                count_1 += 1
+                weights_manager_outputs_agent = weights_manager_outputs.copy()
+                noise_agent = weights_manager_outputs.copy()
+                for key, variable in weights_manager_outputs_agent.items():
+                    count_2 += 1
+                    seed = count_1 * len(agents) + count_2 * len(key)
+                    shape = weights_manager_outputs_agent[key].shape
+                    noise_ = np.random.RandomState(seed).normal(loc=0.0, scale=1.0, size=shape).astype(np.float32)
+                    weights_manager_outputs_agent[key] += self.config["noise_stdev"] * noise_
+                    noise_agent[key] = noise_
+                self.noise_table[index] = noise_agent
+
+
+                a.set_weights_manager_loss.remote(weights_manager_outputs_agent)
+
+
+        else:
+            weights_manager_loss = ray.put(model.get_weights_manager_loss())
+            [a.set_weights_manager_loss.remote(weights_manager_loss) for a in agents]
+
+
         weights_worker_loss = ray.put(model.get_weights_worker_loss())
         [a.set_weights_worker_loss.remote(weights_worker_loss) for a in agents]
-        if self.config["num_sgd_iter_baseline_manager"] > 0 :
-            weights_manager_baseline = ray.put(model.get_weights_manager_baseline())
-            [a.set_weights_manager_baseline.remote(weights_manager_baseline) for a in agents]
-        if self.config["num_sgd_iter_baseline_worker"] > 0 :
-            weights_worker_baseline = ray.put(model.get_weights_worker_baseline())
-            [a.set_weights_worker_baseline.remote(weights_worker_baseline) for a in agents]
 
         samples = collect_samples(agents, config, self.local_evaluator)
 
@@ -182,14 +205,21 @@ class FeudalAgent(Agent):
             # to guard against the case where all values are equal
             return (value - value.mean()) / max(1e-4, value.std())
 
-        samples.data["advantages_manager"] = standardized(samples["advantages_manager"])
+        if self.ES == False:
+            samples.data["advantages_manager"] = standardized(samples["advantages_manager"])
         samples.data["advantages_worker"] = standardized(samples["advantages_worker"])
 
         rollouts_end = time.time()
         print("Computing policy (iterations=" + str(config["num_sgd_iter"]) +
               ", stepsize=" + str(config["sgd_stepsize"]) + "):")
-        names = [
-            "iter", "loss_manager", "vf_loss_manager", "policy_loss_manager", "loss_worker", "policy_loss_worker", "vf_loss_worker", "kl", "entropy_worker"]
+        if self.ES:
+            names = [
+                "iter", "loss_worker", "policy_loss_worker", "vf_loss_worker", "kl", "entropy_worker"]
+        else:
+            names = [
+                "iter", "loss_manager", "vf_loss_manager", "policy_loss_manager", "loss_worker", "policy_loss_worker",
+                "vf_loss_worker", "kl", "entropy_worker"]
+
         print(("{:>15}" * len(names)).format(*names))
         samples.shuffle()
         shuffle_end = time.time()
@@ -205,7 +235,10 @@ class FeudalAgent(Agent):
             batch_index = 0
             num_batches = (
                 int(tuples_per_device) // int(model.per_device_batch_size))
-            loss_manager, vf_loss_manager, policy_loss_manager, loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker = [], [], [], [], [], [], [], []
+            if self.ES:
+                loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker = [], [], [], [], []
+            else:
+                loss_manager, vf_loss_manager, policy_loss_manager, loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker = [], [], [], [], [], [], [], []
             permutation = np.random.permutation(num_batches)
             # Prepare to drop into the debugger
             if self.iteration == config["tf_debug_iteration"]:
@@ -214,36 +247,45 @@ class FeudalAgent(Agent):
                 full_trace = (
                     i == 0 and self.iteration == 0 and
                     batch_index == config["full_trace_nth_sgd_batch"])
-                batch_loss_manager, batch_vf_loss_manager,  batch_loss_policy_manager= model.run_sgd_minibatch_manager(
-                        permutation[batch_index] * model.per_device_batch_size,
-                        full_trace,
-                        self.file_writer)
+                if self.ES == False:
+                    batch_loss_manager, batch_vf_loss_manager,  batch_loss_policy_manager= model.run_sgd_minibatch_manager(
+                            permutation[batch_index] * model.per_device_batch_size,
+                            full_trace,
+                            self.file_writer)
+                    loss_manager.append(batch_loss_manager)
+                    vf_loss_manager.append(batch_vf_loss_manager)
+                    policy_loss_manager.append(batch_loss_policy_manager)
+
                 batch_loss_worker, batch_policy_loss_worker, batch_vf_loss_worker, batch_kl, \
                     batch_entropy_worker = model.run_sgd_minibatch_worker(
                         permutation[batch_index] * model.per_device_batch_size,
                         self.kl_coeff, full_trace,
                         self.file_writer)
-                loss_manager.append(batch_loss_manager)
-                vf_loss_manager.append(batch_vf_loss_manager)
-                policy_loss_manager.append(batch_loss_policy_manager)
                 loss_worker.append(batch_loss_worker)
                 policy_loss_worker.append(batch_policy_loss_worker)
                 vf_loss_worker.append(batch_vf_loss_worker)
                 kl.append(batch_kl)
                 entropy_worker.append(batch_entropy_worker)
                 batch_index += 1
-            loss_manager = np.mean(loss_manager)
-            vf_loss_manager = np.mean(vf_loss_manager)
-            policy_loss_manager = np.mean(policy_loss_manager)
+            if self.ES == False:
+                loss_manager = np.mean(loss_manager)
+                vf_loss_manager = np.mean(vf_loss_manager)
+                policy_loss_manager = np.mean(policy_loss_manager)
             loss_worker = np.mean(loss_worker)
             policy_loss_worker = np.mean(policy_loss_worker)
             vf_loss_worker= np.mean(vf_loss_worker)
             kl = np.mean(kl)
             entropy_worker = np.mean(entropy_worker)
             sgd_end = time.time()
-            print(
-                "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
-                    i, loss_manager, vf_loss_manager, policy_loss_manager, loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker))
+            if self.ES:
+                print(
+                    "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
+                        i, loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker))
+            else:
+                print(
+                    "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
+                        i, loss_manager, vf_loss_manager, policy_loss_manager, loss_worker, policy_loss_worker,
+                        vf_loss_worker, kl, entropy_worker))
 
             values = []
             if i == config["num_sgd_iter"] - 1:
@@ -251,19 +293,28 @@ class FeudalAgent(Agent):
                 values.append(tf.Summary.Value(
                     tag=metric_prefix + "kl_coeff",
                     simple_value=np.mean(self.kl_coeff)))
-                values.extend([
-                    tf.Summary.Value(
+
+                liste_values = [tf.Summary.Value(
                         tag=metric_prefix + "mean_entropy",
-                        simple_value=entropy_worker),
-                    tf.Summary.Value(
+                        simple_value=entropy_worker)]
+                if self.ES == False:
+                    liste_values += [tf.Summary.Value(
                         tag=metric_prefix + "mean_loss_manager",
-                        simple_value=loss_manager),
-                    tf.Summary.Value(
+                        simple_value=policy_loss_manager),
+                        tf.Summary.Value(
+                            tag=metric_prefix + "mean_VF_loss_manager",
+                            simple_value=vf_loss_manager)
+                    ]
+                liste_values += [tf.Summary.Value(
                         tag=metric_prefix + "mean_loss_worker",
-                        simple_value=loss_worker),
+                        simple_value=policy_loss_worker),
+                    tf.Summary.Value(
+                        tag=metric_prefix + "mean_VF_loss_worker",
+                        simple_value=vf_loss_worker),
                     tf.Summary.Value(
                         tag=metric_prefix + "mean_kl",
-                        simple_value=kl)])
+                        simple_value=kl)]
+                values.extend(liste_values)
                 if self.file_writer:
                     sgd_stats = tf.Summary(value=values)
                     self.file_writer.add_summary(sgd_stats, self.global_step)
@@ -290,63 +341,6 @@ class FeudalAgent(Agent):
             "sample_throughput": len(samples["obs"]) / sgd_time
         }
 
-        if self.config["num_sgd_iter_baseline_manager"] > 0:
-            print("Fitting the baseline of the Manager")
-
-            for i in range(config["num_sgd_iter_baseline_manager"]):
-                batch_index = 0
-                num_batches = (
-                    int(tuples_per_device) // int(model.per_device_batch_size))
-                vf_loss_manager = []
-                permutation = np.random.permutation(num_batches)
-                # Prepare to drop into the debugger
-                if self.iteration == config["tf_debug_iteration"]:
-                    model.sess = tf_debug.LocalCLIDebugWrapperSession(model.sess)
-                while batch_index < num_batches:
-                    full_trace = (
-                        i == 0 and self.iteration == 0 and
-                        batch_index == config["full_trace_nth_sgd_batch"])
-                    batch_vf_loss_manager = model.run_sgd_minibatch_baseline_manager(
-                            permutation[batch_index] * model.per_device_batch_size,
-                            full_trace,
-                            self.file_writer)
-                    vf_loss_manager.append(batch_vf_loss_manager)
-                    batch_index += 1
-                vf_loss_manager = np.mean(vf_loss_manager)
-                print(
-                    "{:>15}{:15.5e}".format(
-                        i,  vf_loss_manager))
-
-
-        if self.config["num_sgd_iter_baseline_worker"] > 0:
-            print("Fitting the baseline of the Worker")
-
-            for i in range(config["num_sgd_iter_baseline_worker"]):
-                batch_index = 0
-                num_batches = (
-                    int(tuples_per_device) // int(model.per_device_batch_size))
-                vf_loss_worker = []
-                permutation = np.random.permutation(num_batches)
-                # Prepare to drop into the debugger
-                if self.iteration == config["tf_debug_iteration"]:
-                    model.sess = tf_debug.LocalCLIDebugWrapperSession(model.sess)
-                while batch_index < num_batches:
-                    full_trace = (
-                        i == 0 and self.iteration == 0 and
-                        batch_index == config["full_trace_nth_sgd_batch"])
-                    batch_vf_loss_manager = model.run_sgd_minibatch_baseline_worker(
-                            permutation[batch_index] * model.per_device_batch_size,
-                            full_trace,
-                            self.file_writer)
-                    vf_loss_worker.append(batch_vf_loss_manager)
-                    batch_index += 1
-                vf_loss_worker = np.mean(vf_loss_worker)
-                print(
-                    "{:>15}{:15.5e}".format(
-                        i,  vf_loss_worker))
-
-
-
         FilterManager.synchronize(
             self.local_evaluator.filters, self.remote_agents)
         res = self._fetch_metrics_from_remote_evaluators()
@@ -357,12 +351,34 @@ class FeudalAgent(Agent):
     def _fetch_metrics_from_remote_evaluators(self):
         episode_rewards = []
         episode_lengths = []
+        episode_rewards_agents = []
+
         metric_lists = [a.get_completed_rollout_metrics.remote()
                         for a in self.remote_agents]
+
         for metrics in metric_lists:
+            episode_rewards_agents_local = []
             for episode in ray.get(metrics):
                 episode_lengths.append(episode.episode_length)
-                episode_rewards.append(episode.episode_reward)
+                reward = episode.episode_reward
+                episode_rewards.append(reward)
+                episode_rewards_agents_local.append(reward)
+            episode_rewards_agents.append(
+                np.mean(episode_rewards_agents_local) if episode_rewards_agents_local else float('nan'))
+
+
+        if self.ES:
+            weights_manager_outputs = self.local_evaluator.get_weights_manager_loss()
+            denominator = len(self.remote_agents) * self.config["noise_stdev"]
+            for i in range(len(self.remote_agents)):
+                noise = self.noise_table[i]
+                for key, variable in weights_manager_outputs.items():
+                    weights_manager_outputs[key] -= self.config["alpha"] * (1 / denominator) * noise[key] * \
+                                                    episode_rewards_agents[i]
+
+            self.local_evaluator.set_weights_manager_loss(weights_manager_outputs)
+
+
         avg_reward = (
             np.mean(episode_rewards) if episode_rewards else float('nan'))
         avg_length = (

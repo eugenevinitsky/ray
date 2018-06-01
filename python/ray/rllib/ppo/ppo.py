@@ -216,11 +216,18 @@ class PPOAgent(Agent):
                         tag=metric_prefix + "mean_loss",
                         simple_value=loss),
                     tf.Summary.Value(
+                        tag=metric_prefix + "mean_vf_loss",
+                        simple_value=vf_loss),
+                    tf.Summary.Value(
                         tag=metric_prefix + "mean_kl",
                         simple_value=kl)])
+
                 if self.file_writer:
                     sgd_stats = tf.Summary(value=values)
+                    weights = model.get_weights_loss()
+                    weights_summary = tf.summary.histogram("weights", weights)
                     self.file_writer.add_summary(sgd_stats, self.global_step)
+                    self.file_writer.add_summary(weights_summary, self.global_step)
             self.global_step += 1
             sgd_time += sgd_end - sgd_start
 

@@ -359,11 +359,13 @@ class FeudalAgent_ES(Agent):
 
     def _fetch_metrics_from_remote_evaluators(self, noise_table):
 
+        episode_rewards = []
+        episode_lengths = []
+
         weights_manager_outputs = self.local_evaluator.get_weights_manager_loss()
 
         episode_rewards_agents = []
-        episode_rewards = []
-        episode_lengths = []
+
         metric_lists = [a.get_completed_rollout_metrics.remote()
                         for a in self.remote_agents]
 
@@ -382,7 +384,7 @@ class FeudalAgent_ES(Agent):
         for i in range(len(self.remote_agents)):
             noise = noise_table[i]
             for key, variable in weights_manager_outputs.items():
-                weights_manager_outputs[key] -= self.config["alpha"] * "(1 / denominator) * noise[key] * episode_rewards_agents[i]
+                weights_manager_outputs[key] -= self.config["alpha"] * (1 / denominator) * noise[key] * episode_rewards_agents[i]
 
         self.local_evaluator.set_weights_manager_loss(weights_manager_outputs)
 

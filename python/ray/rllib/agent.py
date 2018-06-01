@@ -225,6 +225,9 @@ def get_agent_class(alg):
     if alg == "PPO":
         from ray.rllib import ppo
         return ppo.PPOAgent
+    elif alg == "FEUDAL":
+        from ray.rllib import feudal_HRL
+        return feudal_HRL.FeudalAgent
     elif alg == "ES":
         from ray.rllib import es
         return es.ESAgent

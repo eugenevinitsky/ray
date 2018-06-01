@@ -51,11 +51,13 @@ class ProximalPolicyLoss(object):
                     self.Q_function = ModelCatalog.get_model(
                         registry, self.input_Q_value, 1, vf_config).outputs
                 self.Q_function = tf.reshape(self.Q_function, [-1])
+                #tf.summary.histogram("Q_function", self.Q_function)
             else:
                 with tf.variable_scope("value_function"):
                     self.value_function = ModelCatalog.get_model(
                         registry, observations, 1, vf_config).outputs
                 self.value_function = tf.reshape(self.value_function, [-1])
+                #tf.summary.histogram("value_function", self.value_function)
 
         curr_r_matrix = self.curr_dist.r_matrix(actions)
         prev_r_matrix = self.prev_dist.r_matrix(actions)
@@ -202,3 +204,9 @@ class ProximalPolicyLoss(object):
 
     def mean_vf_loss(self):
         return self.mean_vf_loss
+
+    def return_value_function(self):
+        if self.ADB:
+            return self.Q_function
+        else:
+            return self.value_function

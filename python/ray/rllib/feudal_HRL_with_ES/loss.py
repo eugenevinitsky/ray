@@ -261,7 +261,6 @@ class FeudalLoss(object):
             action, logprobs, vfw = self.sess.run(
                 self.policy_results,
                 feed_dict={self.observations: [observation], self.g_sum: gsum})
-            return action[0], {"vf_preds_worker": vfw[0], "logprobs": logprobs[0]}
 
         return action[0], {"vf_preds_worker": vfw[0],"logprobs": logprobs[0]}
 
