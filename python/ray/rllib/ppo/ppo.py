@@ -97,8 +97,7 @@ class PPOAgent(Agent):
     _default_config = DEFAULT_CONFIG
 
     def _init(self):
-        print("I AM RUNNING THIS GUY")
-        print("THIS GUY IS THE LAST ")
+        print("THIS IS A TEST")
         ADB = self.config["ADB"]
         self.global_step = 0
         self.kl_coeff = self.config["kl_coeff"]
