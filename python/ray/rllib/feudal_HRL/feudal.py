@@ -92,19 +92,19 @@ DEFAULT_CONFIG = {
     # Arguments to pass to the env creator
     "env_config": {},
     # dimension of goals
-    "g_dim" : 4,
+    "g_dim" : 256,
     # kappa coefficient from the VMF distribution
     "kappa" : 1.0,
     # Dimension of w
-    "k" : 4,
+    "k" : 16,
     # Vf hidden size
-    "vf_hidden_size" : 4,
+    "vf_hidden_size" : 256,
     # Horizon of the manager
     "c" : 2,
     # Boolean variable if the Worker use ADB
     "ADB" : True,
     # Dilatation rate
-    "dilatation_rate" : 5,
+    "dilatation_rate" : 10,
     # WHETEHR THE MODE MANAGER ES IS ACTIVATED OR NOT
     "ES": False,
     # Standard deviation of the noise for parameters perturbation
