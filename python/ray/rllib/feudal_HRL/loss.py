@@ -12,25 +12,22 @@ import numpy as np
 
 class FeudalLoss(object):
 
+
     other_output = ["vf_preds_manager", "vf_preds_worker", "logprobs"]
+    other_output_ES = ["vf_preds_worker", "logprobs"]
     is_recurrent = False
 
     def __init__(
             self, gsum, observation_space, action_space,
             observations, value_targets_worker, advantages_worker, actions, prev_logits, prev_vf_preds_worker,
-            diff, prev_vf_preds_manager, value_targets_manager, advantages_manager,
-            logit_dim, kl_coeff, distribution_class, distribution_class_obs, config, sess, registry, ADB, ES):
+            logit_dim, kl_coeff, distribution_class, distribution_class_obs, config, sess, registry, ADB, ES,
+            diff=None, prev_vf_preds_manager=None, value_targets_manager=None, advantages_manager=None):
 
         self.ES = ES
         self.ADB = ADB
         action_dim = action_space.shape[0]
         self.actions = actions
         self.prev_dist = distribution_class(prev_logits)
-        self.shared_model = (config["model"].get("custom_options", {}).
-                             get("multiagent_shared_model", False))
-        self.num_agents = len(config["model"].get(
-            "custom_options", {}).get("multiagent_obs_shapes", [1]))
-
         # Saved so that we can compute actions given different observations
         self.observations = observations
         self.g_sum = tf.stop_gradient(gsum)
@@ -57,7 +54,7 @@ class FeudalLoss(object):
             self.g = tf.nn.l2_normalize(g_hat, dim=1)
 
             if self.ES:
-                self.manager_logits = self.g.copy()
+                self.manager_logits = self.g
 
             else:
                 self.manager_logits = distribution_class_obs(self.g, config["kappa"], observation_space.shape[0])
@@ -70,12 +67,8 @@ class FeudalLoss(object):
                 self.diff = diff
                 self.diff = tf.nn.l2_normalize(self.diff, dim=1)
                 self.logp_manager = self.manager_logits.logp(self.diff)
-                if not isinstance(self.logp_manager, list):
-                    self.logp_manager = [self.logp_manager]
 
-                self.logp_manager = [logp for logp in zip(self.logp_manager)]
-                self.surr_manager = [logp_manager * advantages_manager for logp_manager in self.logp_manager]
-                self.surr_manager = tf.add_n(self.surr_manager)
+                self.surr_manager = self.logp_manager * advantages_manager
                 self.mean_surr_manager = tf.reduce_mean(self.surr_manager)
 
                 self.vf_loss1_manager = tf.square(self.value_function_manager - value_targets_manager)
@@ -143,60 +136,33 @@ class FeudalLoss(object):
             self.kl = self.prev_dist.kl(self.curr_dist)
             self.entropy_worker = self.curr_dist.entropy()
 
-            # handle everything uniform as if it were the multiagent case
-            if not isinstance(curr_logp, list):
-                self.kl = [self.kl]
-                curr_logp = [curr_logp]
-                prev_logp = [prev_logp]
-                self.entropy_worker = [self.entropy_worker]
-
-            curr_r_matrix = [curr_r_matrix]
-            prev_r_matrix = [prev_r_matrix]
 
             if self.ADB:
-                self.ratio_worker = [curr / prev
-                                     for curr, prev in zip(curr_r_matrix, prev_r_matrix)]
-                self.surr2_worker = [tf.clip_by_value(ratio_i, (1 - config["clip_param"]) ** (1 / action_dim),
+                self.ratio_worker = curr_r_matrix / prev_r_matrix
+
+                self.surr2_worker = tf.clip_by_value(self.ratio_worker, (1 - config["clip_param"]) ** (1 / action_dim),
                                                       (1 + config["clip_param"]) ** (
                                                                   1 / action_dim)) * advantages_worker
-                                     for ratio_i in self.ratio_worker]
 
             else:
-                self.ratio_worker = [tf.exp(curr - prev)
-                                 for curr, prev in zip(curr_logp, prev_logp)]
-                self.surr2_worker = [tf.clip_by_value(ratio_i, 1 - config["clip_param"],
-                                                      1 + config["clip_param"]) * advantages_worker
-                                     for ratio_i in self.ratio_worker]
+                self.ratio_worker = tf.exp(curr_logp - prev_logp)
 
-            self.mean_kl = [tf.reduce_mean(kl_i) for kl_i in self.kl]
+                self.surr2_worker = tf.clip_by_value(self.ratio_worker, 1 - config["clip_param"],
+                                                      1 + config["clip_param"]) * advantages_worker
+
+
+            self.mean_kl = tf.reduce_mean(self.kl)
             self.mean_entropy_worker = tf.reduce_mean(self.entropy_worker)
-            self.surr1_worker = [ratio_i * advantages_worker for ratio_i in self.ratio_worker]
+            self.surr1_worker = self.ratio_worker * advantages_worker
 
             if self.ADB:
-                self.surr_worker = [tf.reduce_sum(tf.minimum(surr1_i, surr2_i), reduction_indices=[1]) for
-                                    surr1_i, surr2_i in
-                                    zip(self.surr1_worker, self.surr2_worker)]
+                self.surr_worker = tf.reduce_sum(tf.minimum(self.surr1_worker, self.surr2_worker), reduction_indices=[1])
             else:
-                self.surr_worker = [tf.minimum(surr1_i, surr2_i) for surr1_i, surr2_i in
-                                    zip(self.surr1_worker, self.surr2_worker)]
+                self.surr_worker = tf.minimum(self.surr1_worker, self.surr2_worker)
 
-            self.surr_worker = tf.add_n(self.surr_worker)
             self.mean_policy_loss_worker = tf.reduce_mean(-self.surr_worker)
 
-            self.entropy_worker = tf.add_n(self.entropy_worker)
-            entropy_prod_worker = config["entropy_coeff"] * self.entropy_worker
-
-            # there's only one kl value for a shared model
-            if self.shared_model:
-                kl_prod = tf.add_n([kl_coeff[0] * kl_i for
-                                    i, kl_i in enumerate(self.kl)])
-                # all the above values have been rescaled by num_agents
-                self.surr_worker /= self.num_agents
-                kl_prod /= self.num_agents
-                entropy_prod_worker /= self.num_agents
-            else:
-                kl_prod = tf.add_n([kl_coeff[i] * kl_i for
-                                    i, kl_i in enumerate(self.kl)])
+            self.mean_entropy_worker = tf.reduce_mean(self.entropy_worker)
 
             if config["use_gae"]:
                 # We use a huber loss here to be more robust against outliers,
@@ -218,15 +184,13 @@ class FeudalLoss(object):
                 self.mean_vf_loss_worker = tf.reduce_mean(self.vf_loss_worker)
 
                 self.loss_worker = tf.reduce_mean(
-                        -self.surr_worker + kl_prod +
+                        -self.surr_worker + kl_coeff * self.kl  +
                         config["vf_loss_coeff_worker"] * self.vf_loss_worker -
-                        entropy_prod_worker)
+                        config["entropy_coeff"] * self.entropy_worker)
 
             else:
                 self.mean_vf_loss_worker = tf.constant(0.0)
-                self.loss_worker = tf.reduce_mean(
-                    -self.surr_worker +
-                    kl_prod - entropy_prod_worker)
+                self.loss_worker = tf.reduce_mean(0)
 
             self.sess = sess
 
@@ -306,7 +270,6 @@ class FeudalLoss(object):
                 action, logprobs, vfm, vfw = self.sess.run(
                     self.policy_results,
                     feed_dict={self.observations: [observation], self.g_sum: gsum})
-                return action[0], {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw[0], "logprobs": logprobs[0]}
 
             return action[0], {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw[0],"logprobs": logprobs[0]}
 
@@ -317,7 +280,7 @@ class FeudalLoss(object):
     def mean_vf_loss_manager(self):
         return self.mean_vf_loss_manager
 
-    def output_manager(self):
+    def manager_logits(self):
         return self.manager_logits
 
     def loss_worker(self):

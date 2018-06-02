@@ -69,16 +69,20 @@ class LocalSyncParallelOptimizer_Feudal(object):
         # Split on the CPU in case the data doesn't fit in GPU memory.
         with tf.device("/cpu:0"):
             data_splits = zip(
-                *[tf.split(ph, len(devices)) for ph in input_placeholders])
+                    *[tf.split(ph, len(devices)) for ph in input_placeholders])
 
 
 
         self._towers_loss_manager = []
         self._towers_loss_worker = []
         for device, device_placeholders in zip(self.devices, data_splits):
-            new_tower_loss_manager, new_tower_loss_worker= self._setup_device(device, device_placeholders)
-            self._towers_loss_manager.append(new_tower_loss_manager)
-            self._towers_loss_worker.append(new_tower_loss_worker)
+            if self.ES == False:
+                new_tower_loss_manager, new_tower_loss_worker= self._setup_device(device, device_placeholders)
+                self._towers_loss_manager.append(new_tower_loss_manager)
+                self._towers_loss_worker.append(new_tower_loss_worker)
+            else:
+                new_tower_loss_worker = self._setup_device(device, device_placeholders)
+                self._towers_loss_worker.append(new_tower_loss_worker)
 
             if self.ES == False:
                 avg = average_gradients([t.grads for t in self._towers_loss_manager])
@@ -215,7 +219,7 @@ class LocalSyncParallelOptimizer_Feudal(object):
 
     def get_device_losses(self):
         if self.ES:
-            return None, [t.loss_object for t in self._towers_loss_worker]
+            return [t.loss_object for t in self._towers_loss_worker]
         else:
             return [t.loss_object for t in self._towers_loss_manager], [t.loss_object for t in self._towers_loss_worker]
 
@@ -257,7 +261,7 @@ class LocalSyncParallelOptimizer_Feudal(object):
                         device_grads_loss_worker,
                             device_loss_obj)
             else:
-                return None, Tower(
+                return Tower(
                             tf.group(*[batch.initializer
                                        for batch in device_input_batches]),
                         device_grads_loss_worker,

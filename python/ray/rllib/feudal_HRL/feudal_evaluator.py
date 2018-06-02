@@ -16,7 +16,7 @@ from ray.rllib.optimizers.multi_gpu_impl import LocalSyncParallelOptimizer_Feuda
 from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.sampler import SyncSampler_Feudal
 from ray.rllib.utils.filter import get_filter, MeanStdFilter
-from ray.rllib.utils.process_rollout import process_rollout_Feudal, process_rollout_Feudal_AD
+from ray.rllib.utils.process_rollout import process_rollout_Feudal
 
 
 
@@ -59,27 +59,20 @@ class FeudalEvaluator(PolicyEvaluator):
 
         # Defines the training inputs:
         # The coefficient of the KL penalty.
-        shared_model = (self.config["model"].get("custom_options", {}).
-                        get("multiagent_shared_model", False))
-        if shared_model:
-            num_kl_terms = 1
-        else:
-            num_kl_terms = len(self.config["model"].get("custom_options", {}).
-                               get("multiagent_obs_shapes", [1]))
         self.kl_coeff = tf.placeholder(
-            name="newkl", shape=(num_kl_terms,), dtype=tf.float32)
+            name="newkl", shape=(), dtype=tf.float32)
 
         obs_space = self.env.observation_space
         action_space = self.env.action_space
         action_dim = action_space.shape[0]
         # The input observations.
 
-        if self.ES == False:
-            self.diff = tf.placeholder(
+        self.diff = tf.placeholder(
                 tf.float32, shape=(None, self.config["g_dim"]))
-            self.value_targets_manager = tf.placeholder(tf.float32, shape=(None,))
-            self.advantages_manager = tf.placeholder(tf.float32, shape=(None,))
-            self.prev_vf_preds_manager = tf.placeholder(tf.float32, shape=(None,))
+        self.value_targets_manager = tf.placeholder(tf.float32, shape=(None,))
+        self.advantages_manager = tf.placeholder(tf.float32, shape=(None,))
+        self.prev_vf_preds_manager = tf.placeholder(tf.float32, shape=(None,))
+
 
         self.gsum = tf.placeholder(
                 tf.float32, shape=(None, self.config["g_dim"]))
@@ -123,18 +116,15 @@ class FeudalEvaluator(PolicyEvaluator):
                                   self.env.observation_space, self.env.action_space,
                                   obs, value_targets_worker, advantages_worker, acts,
                                   plog, prev_vf_preds_worker,
-                                  diff, prev_vf_preds_manager, value_targets_manager, advantages_manager,
                                   self.logit_dim,
                                   self.kl_coeff, self.distribution_class, self.distribution_class_obs, self.config,
-                                  self.sess, self.registry, self.ADB, self.ES)
+                                  self.sess, self.registry, self.ADB, self.ES,
+                                  diff, prev_vf_preds_manager, value_targets_manager, advantages_manager)
 
         liste_inputs = [self.gsum, self.observations, self.value_targets_worker,
              self.advantages_worker, self.actions, self.prev_logits, self.prev_vf_preds_worker]
 
-        if self.ES == False:
-            liste_inputs += [self.diff, self.prev_vf_preds_manager, self.value_targets_manager, self.advantages_manager]
-        else:
-            liste_inputs += [None, None, None, None]
+        liste_inputs += [self.diff, self.prev_vf_preds_manager, self.value_targets_manager, self.advantages_manager]
 
         self.par_opt = LocalSyncParallelOptimizer_Feudal(
             tf.train.AdamOptimizer(self.config["sgd_stepsize"]),
@@ -147,30 +137,33 @@ class FeudalEvaluator(PolicyEvaluator):
 
         # Metric ops
         with tf.name_scope("test_outputs"):
+            if self.ES == False:
                 policies_manager, policies_worker = self.par_opt.get_device_losses()
-                if policies_manager != None:
-                    self.loss_manager = tf.reduce_mean(
+                self.loss_manager = tf.reduce_mean(
                         tf.stack(values=[
                             policy.loss_manager for policy in policies_manager]), 0)
-                    self.mean_vf_loss_manager = tf.reduce_mean(
+                self.mean_vf_loss_manager = tf.reduce_mean(
                         tf.stack(values=[
                             policy.mean_vf_loss_manager for policy in policies_manager]), 0)
-                    self.manager_policy_loss = tf.reduce_mean(
+                self.manager_policy_loss = tf.reduce_mean(
                         tf.stack(values=[
                             policy.mean_surr_manager for policy in policies_manager]), 0)
-                self.loss_worker = tf.reduce_mean(
+            else:
+                policies_worker = self.par_opt.get_device_losses()
+
+            self.loss_worker = tf.reduce_mean(
                     tf.stack(values=[
                         policy.loss_worker for policy in policies_worker]), 0)
-                self.mean_policy_loss_worker = tf.reduce_mean(
+            self.mean_policy_loss_worker = tf.reduce_mean(
                     tf.stack(values=[
                         policy.mean_policy_loss_worker for policy in policies_worker]), 0)
-                self.mean_vf_loss_worker = tf.reduce_mean(
+            self.mean_vf_loss_worker = tf.reduce_mean(
                     tf.stack(values=[
                         policy.mean_vf_loss_worker for policy in policies_worker]), 0)
-                self.mean_kl = tf.reduce_mean(
+            self.mean_kl = tf.reduce_mean(
                     tf.stack(values=[
                         policy.mean_kl for policy in policies_worker]), 0)
-                self.mean_entropy_worker = tf.reduce_mean(
+            self.mean_entropy_worker = tf.reduce_mean(
                     tf.stack(values=[
                         policy.mean_entropy_worker for policy in policies_worker]), 0)
 
@@ -180,11 +173,8 @@ class FeudalEvaluator(PolicyEvaluator):
         self.common_policy = self.par_opt.get_common_loss()
 
         if self.ES:
-            self.variables_manager = ray.experimental.TensorFlowVariables(
-                self.common_policy.output_manager, self.sess)
-            self.num_params_manager = sum([np.prod(variable.shape.as_list())
-                                           for _, variable
-                                           in self.variables_manager.variables.items()])
+            self.variables_manager_loss = ray.experimental.TensorFlowVariables(
+                self.common_policy.manager_logits, self.sess)
 
         else:
             self.variables_manager_loss = ray.experimental.TensorFlowVariables(
@@ -211,8 +201,7 @@ class FeudalEvaluator(PolicyEvaluator):
                                     trajectories["advantages_worker"], trajectories["actions"],
                                     trajectories["logprobs"], trajectories["vf_preds_worker"]]
 
-        if self.ES == False:
-            liste_inputs_trajectories += [trajectories["diff"], trajectories["vf_preds_manager"],
+        liste_inputs_trajectories += [trajectories["diff"], trajectories["vf_preds_manager"],
                                          trajectories["value_targets_manager"], trajectories["advantages_manager"]]
         return self.par_opt.load_data(
                 self.sess,
@@ -283,13 +272,8 @@ class FeudalEvaluator(PolicyEvaluator):
 
         while num_steps_so_far < self.config["min_steps_per_task"]:
             rollout = self.sampler.get_data()
-            if self.ADB:
-                samples = process_rollout_Feudal_AD(self.config["c"], self.config["tradeoff_rewards"],
-                                                 rollout, self.rew_filter, self.config["gamma"],
-                                                 self.config["lambda"], use_gae=self.config["use_gae"])
-            else:
-                samples = process_rollout_Feudal(self.config["c"], self.config["tradeoff_rewards"],
-                                                 rollout, self.rew_filter, self.config["gamma"],
+            samples = process_rollout_Feudal(self.config["c"], self.config["tradeoff_rewards"],
+                                                 rollout, self.rew_filter, self.config["gamma"], self.ADB, self.ES,
                                                  self.config["lambda"], use_gae=self.config["use_gae"])
 
             num_steps_so_far += samples.count

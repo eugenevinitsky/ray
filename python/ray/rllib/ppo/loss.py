@@ -21,11 +21,6 @@ class ProximalPolicyLoss(object):
         self.filer_summaries = []
         self.ADB = ADB
         self.prev_dist = distribution_class(prev_logits)
-        self.shared_model = (config["model"].get("custom_options", {}).
-                             get("multiagent_shared_model", False))
-
-        self.num_agents = len(config["model"].get(
-            "custom_options", {}).get("multiagent_obs_shapes", [1]))
 
         # Saved so that we can compute actions given different observations
         self.observations = observations

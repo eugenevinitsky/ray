@@ -15,8 +15,8 @@ from ray.tune.result import TrainingResult
 from ray.rllib.agent import Agent
 from ray.rllib.utils import FilterManager
 from ray.rllib.feudal_HRL.feudal_evaluator import FeudalEvaluator
-
 from ray.rllib.feudal_HRL.rollout import collect_samples
+from ray.rllib.feudal_HRL.utils import log_histogram
 
 
 DEFAULT_CONFIG = {
@@ -122,15 +122,8 @@ class FeudalAgent(Agent):
 
     def _init(self):
         self.ES = self.config["ES"]
-        self.shared_model = (self.config["model"].get("custom_options", {}).
-                        get("multiagent_shared_model", False))
-        if self.shared_model:
-            self.num_models = 1
-        else:
-            self.num_models = len(self.config["model"].get(
-                "custom_options", {}).get("multiagent_obs_shapes", [1]))
         self.global_step = 0
-        self.kl_coeff = [self.config["kl_coeff"]] * self.num_models
+        self.kl_coeff = self.config["kl_coeff"]
 
         self.local_evaluator = FeudalEvaluator(
             self.registry, self.env_creator, self.config, self.logdir, False, self.config["ADB"], self.ES)
@@ -318,18 +311,23 @@ class FeudalAgent(Agent):
                 if self.file_writer:
                     sgd_stats = tf.Summary(value=values)
                     self.file_writer.add_summary(sgd_stats, self.global_step)
+                    weights_loss_manager = model.get_weights_manager_loss()
+
+                    for key, variable in weights_loss_manager.items():
+                        log_histogram(self.file_writer, key, variable, self.global_step)
+
+                    weights_loss_worker = model.get_weights_worker_loss()
+                    for key, variable in weights_loss_worker.items():
+                        log_histogram(self.file_writer, key, variable, self.global_step)
+
+
             self.global_step += 1
             sgd_time += sgd_end - sgd_start
 
-        # treat single-agent as a multi-agent system w/ one agent
-        if not isinstance(kl, np.ndarray):
-            kl = [kl]
-
-        for i, kl_i in enumerate(kl):
-            if kl_i > 2.0 * config["kl_target"]:
-                self.kl_coeff[i] *= 1.5
-            elif kl_i < 0.5 * config["kl_target"]:
-                self.kl_coeff[i] *= 0.5
+        if kl > 2.0 * config["kl_target"]:
+            self.kl_coeff *= 1.5
+        elif kl < 0.5 * config["kl_target"]:
+            self.kl_coeff *= 0.5
 
         info = {
             "kl_divergence": np.mean(kl),
