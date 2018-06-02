@@ -136,6 +136,7 @@ class LocalSyncParallelOptimizer_Feudal(object):
             init_op = [t.init_op for t in self._towers_loss_worker]
         else:
             init_op = [t.init_op for t in self._towers_loss_manager] + [t.init_op for t in self._towers_loss_worker]
+
         sess.run(
             init_op,
             feed_dict=feed_dict,

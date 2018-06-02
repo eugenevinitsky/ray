@@ -197,7 +197,6 @@ class PPOAgent(Agent):
                     i, loss, policy_loss, vf_loss, kl, entropy))
 
             values = []
-            histograms = []
             if i == config["num_sgd_iter"] - 1:
                 metric_prefix = "ppo/sgd/final_iter/"
                 values.append(tf.Summary.Value(
@@ -208,8 +207,8 @@ class PPOAgent(Agent):
                         tag=metric_prefix + "mean_entropy",
                         simple_value=entropy),
                     tf.Summary.Value(
-                        tag=metric_prefix + "mean_loss",
-                        simple_value=loss),
+                        tag=metric_prefix + "policy_loss",
+                        simple_value=policy_loss),
                     tf.Summary.Value(
                         tag=metric_prefix + "mean_vf_loss",
                         simple_value=vf_loss),

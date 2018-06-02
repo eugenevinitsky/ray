@@ -90,7 +90,7 @@ class SyncSampler_Feudal(object):
     async = False
 
     def __init__(self, env, policy, obs_filter,
-                 num_local_steps, ADB, c, ES, dilatation_rate, horizon=None):
+                 num_local_steps, ADB, c, ES, horizon=None):
         self.ES = ES
         self.ADB = ADB
         self.num_local_steps = num_local_steps
@@ -100,7 +100,7 @@ class SyncSampler_Feudal(object):
         self._obs_filter = obs_filter
         self.rollout_provider = _env_runner_Feudal(
             self.env, self.policy, self.num_local_steps, self.horizon,
-            self._obs_filter, c, self.ADB, self.ES, dilatation_rate)
+            self._obs_filter, c, self.ADB, self.ES)
         self.metrics_queue = queue.Queue()
 
     def get_data(self):
@@ -122,7 +122,7 @@ class SyncSampler_Feudal(object):
 
 
 
-def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB, ES, dilatation_rate):
+def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB, ES):
     """This implements the logic of the thread runner.
 
     It continually runs the policy, and as long as the rollout exceeds a
@@ -161,8 +161,11 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB
         terminal_end = False
         if ES:
             rollout = PartialRollout_Feudal(extra_fields=policy.other_output_ES)
+            print("ARE WE FUCKING HERE???")
+
         else:
             rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
+
 
         for step in range(num_local_steps):
             s, g = policy.compute_manager(last_observation, *last_features)

@@ -37,6 +37,7 @@ class FeudalEvaluator(PolicyEvaluator):
         self.ADB = ADB
         self.registry = registry
         self.is_remote = is_remote
+
         if is_remote:
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
             devices = ["/cpu:0"]
@@ -192,7 +193,7 @@ class FeudalEvaluator(PolicyEvaluator):
                         "rew_filter": self.rew_filter}
         self.sampler = SyncSampler_Feudal(
             self.env, self.common_policy, self.obs_filter,
-            self.config["horizon"], self.ADB, self.config["c"], self.config["dilatation_rate"], self.config["horizon"])
+            self.config["horizon"], self.ADB, self.config["c"], self.ES, self.config["horizon"])
         self.sess.run(tf.global_variables_initializer())
 
     def load_data(self, trajectories, full_trace):
@@ -273,8 +274,10 @@ class FeudalEvaluator(PolicyEvaluator):
         while num_steps_so_far < self.config["min_steps_per_task"]:
             rollout = self.sampler.get_data()
             samples = process_rollout_Feudal(self.config["c"], self.config["tradeoff_rewards"],
-                                                 rollout, self.rew_filter, self.config["gamma"], self.ADB, self.ES,
-                                                 self.config["lambda"], use_gae=self.config["use_gae"])
+                                                 rollout, self.rew_filter, self.config["gamma"], self.config["gamma_internal"],\
+                                                 self.ADB, self.ES,
+                                                 self.config["lambda"], self.config["lambda_internal"],
+                                                use_gae=self.config["use_gae"])
 
             num_steps_so_far += samples.count
             all_samples.append(samples)

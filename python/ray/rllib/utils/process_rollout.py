@@ -94,10 +94,10 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
 
 
     for i in range(traj["advantages_worker"].shape[0]):
-        if ES == False: traj["advantages_manager"][i] = reward_filter(traj["advantages_manager"][i])
+        traj["advantages_manager"][i] = reward_filter(traj["advantages_manager"][i])
         traj["advantages_worker"][i] = reward_filter(traj["advantages_worker"][i])
 
-    if ES ==False: traj["advantages_manager"] = traj["advantages_manager"].copy()
+    traj["advantages_manager"] = traj["advantages_manager"].copy()
     traj["advantages_worker"] = traj["advantages_worker"].copy()
 
     diff_1 = np.append(traj["s"][c:], np.array([traj["s"][-1] for _ in range(c)]), axis=0)
@@ -183,4 +183,3 @@ def process_rollout(rollout, reward_filter, gamma, ADB, lambda_=1.0, use_gae=Tru
     assert all(val.shape[0] == trajsize for val in traj.values()), \
         "Rollout stacked incorrectly!"
     return SampleBatch(traj)
-

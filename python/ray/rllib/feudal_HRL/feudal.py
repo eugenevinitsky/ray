@@ -32,8 +32,9 @@ DEFAULT_CONFIG = {
     # with a value function, see https://arxiv.org/pdf/1506.02438.pdf.
     "use_gae": True,
     # GAE(lambda) parameter
-    "lambda": 1.0,
+    "lambda": 0.97,
     # Initial coefficient for KL divergence
+    "lambda_internal": 0.99,
     "kl_coeff": 0.2,
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
