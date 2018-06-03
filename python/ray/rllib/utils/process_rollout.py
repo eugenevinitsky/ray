@@ -145,8 +145,7 @@ def process_rollout(rollout, reward_filter, gamma, ADB, lambda_=1.0, use_gae=Tru
         SampleBatch (SampleBatch): Object with experience from rollout and
             processed rewards."""
 
-    #returns = discount_sum(rollout.data["rewards"], gamma)
-
+    returns = discount_sum(rollout.data["rewards"], gamma)
     traj = {}
     trajsize = len(rollout.data["actions"])
     for key in rollout.data:
@@ -157,18 +156,16 @@ def process_rollout(rollout, reward_filter, gamma, ADB, lambda_=1.0, use_gae=Tru
             Q_function = np.transpose(np.array(rollout.Q_function))
             Q_pred_t = np.vstack((Q_function, Q_function[-1]))
             delta_t_multi = traj["rewards"].reshape(-1, 1) + gamma * Q_pred_t[1:] - Q_pred_t[:-1]
-            advantages_ADB = discount(delta_t_multi, gamma * lambda_)
+            traj["advantages"] = discount(delta_t_multi, gamma * lambda_)
 
-        vpred_t = np.stack(
-                rollout.data["vf_preds"] + [np.array(rollout.last_r)]).squeeze()
-        delta_t = traj["rewards"] + gamma * vpred_t[1:] - vpred_t[:-1]
-        advantage_non_ABD = discount(delta_t, gamma * lambda_)
-        if ADB:
-            traj["advantages"] = advantages_ADB
         else:
-            traj["advantages"] = advantage_non_ABD
+            vpred_t = np.stack(
+                    rollout.data["vf_preds"] + [np.array(rollout.last_r)]).squeeze()
+            delta_t = traj["rewards"] + gamma * vpred_t[1:] - vpred_t[:-1]
+            traj["advantages"] = discount(delta_t, gamma * lambda_)
 
-        traj["value_targets"] = advantage_non_ABD + traj["vf_preds"]
+
+        traj["value_targets"] = returns
 
     else:
         rewards_plus_v = np.stack(
