@@ -33,10 +33,33 @@ class FeudalLoss(object):
         self.g_sum = tf.stop_gradient(gsum)
         self.diff = diff
 
-        with tf.variable_scope("z"):
-            self.z = tf.layers.dense(inputs=self.observations, \
-                                     units=256, \
-                                     activation=tf.nn.relu)
+
+        if config["activate_filter"]:
+            with tf.variable_scope("CNN_filter"):
+                conv1 = tf.layers.conv2d(inputs=self.observations,
+                                         filters=16,
+                                         kernel_size=[8, 8],
+                                         activation=tf.nn.elu,
+                                         strides=4)
+                conv2 = tf.layers.conv2d(inputs=conv1,
+                                         filters=32,
+                                         kernel_size=[4, 4],
+                                         activation=tf.nn.elu,
+                                         strides=2)
+
+
+                flattened_filters = tf.reshape(conv2, [-1, np.prod(conv2.get_shape().as_list()[1:])])
+
+
+            with tf.variable_scope("z"):
+                self.z = tf.layers.dense(inputs=flattened_filters, \
+                                         units=256, \
+                                         activation=tf.nn.relu)
+        else:
+            with tf.variable_scope("z"):
+                self.z = tf.layers.dense(inputs=self.observations, \
+                                         units=256, \
+                                         activation=tf.nn.relu)
 
 
         with tf.variable_scope("Manager"):

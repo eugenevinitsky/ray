@@ -111,7 +111,9 @@ DEFAULT_CONFIG = {
     # Standard deviation of the noise for parameters perturbation
     "noise_stdev" : 0.1,
     # Hyperparameter for the manager's weights update rule
-    "alpha": 1.0
+    "alpha": 1.0,
+    # Add a CNN filter if activated
+    "activate_filter": False
 }
 
 
