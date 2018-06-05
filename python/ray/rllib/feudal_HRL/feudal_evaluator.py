@@ -115,32 +115,30 @@ class FeudalEvaluator(PolicyEvaluator):
 
         # Metric ops
         with tf.name_scope("test_outputs"):
+            policies = self.par_opt.get_device_losses()
             if self.ES == False:
-                policies_manager, policies_worker = self.par_opt.get_device_losses()
                 self.loss_manager = tf.reduce_mean(
                         tf.stack(values=[
-                            policy.loss_manager for policy in policies_manager]), 0)
+                            policy.loss_manager for policy in policies]), 0)
                 self.mean_vf_loss_manager = tf.reduce_mean(
                         tf.stack(values=[
-                            policy.mean_vf_loss_manager for policy in policies_manager]), 0)
+                            policy.mean_vf_loss_manager for policy in policies]), 0)
                 self.manager_policy_loss = tf.reduce_mean(
                         tf.stack(values=[
-                            policy.mean_surr_manager for policy in policies_manager]), 0)
-            else:
-                policies_worker = self.par_opt.get_device_losses()
+                            policy.mean_surr_manager for policy in policies]), 0)
 
             self.loss_worker = tf.reduce_mean(
                     tf.stack(values=[
-                        policy.loss_worker for policy in policies_worker]), 0)
+                        policy.loss_worker for policy in policies]), 0)
             self.mean_policy_loss_worker = tf.reduce_mean(
                     tf.stack(values=[
-                        policy.mean_policy_loss_worker for policy in policies_worker]), 0)
+                        policy.mean_policy_loss_worker for policy in policies]), 0)
             self.mean_vf_loss_worker = tf.reduce_mean(
                     tf.stack(values=[
-                        policy.mean_vf_loss_worker for policy in policies_worker]), 0)
+                        policy.mean_vf_loss_worker for policy in policies]), 0)
             self.mean_entropy_worker = tf.reduce_mean(
                     tf.stack(values=[
-                        policy.mean_entropy_worker for policy in policies_worker]), 0)
+                        policy.mean_entropy_worker for policy in policies]), 0)
 
 
 
