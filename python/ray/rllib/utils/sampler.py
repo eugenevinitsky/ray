@@ -223,7 +223,6 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
 
         # Once we have enough experience, yield it, and have the ThreadRunner
         # place it on a queue.
-        print(rollout)
         yield rollout
 
 

@@ -33,7 +33,7 @@ class FeudalLoss(object):
         self.diff = diff
 
 
-        """
+
         with tf.variable_scope("CNN_filter"):
             conv1 = tf.layers.conv2d(inputs=self.observations,
                                          filters=16,
@@ -49,13 +49,21 @@ class FeudalLoss(object):
 
             flattened_filters = tf.reshape(conv2, [-1, np.prod(conv2.get_shape().as_list()[1:])])
 
-        """
+        
         with tf.variable_scope("z"):
+            
             self.z = tf.layers.dense(inputs=self.observations, \
                                          units=config["units_z"], \
                                          activation=tf.nn.relu)
 
 
+        """
+        with tf.variable_scope("z"):
+
+            self.z = tf.layers.dense(inputs=tf.contrib.layers.flatten(self.observations), \
+                                     units=config["units_z"], \
+                                     activation=tf.nn.relu)
+        """
 
         with tf.variable_scope("Manager"):
             self.s = tf.layers.dense(inputs=self.z, \
@@ -65,8 +73,19 @@ class FeudalLoss(object):
             x = tf.expand_dims(self.s, [0])
 
             with tf.variable_scope("LSTM"):
+
+                """
                 self.manager_lstm = SingleStepLSTM(size=config["g_dim"], dilatation_rate=config["dilatation_rate"])
                 g_hat = self.manager_lstm.compute_step(x, step_size=tf.shape(self.observations)[:1])
+                """
+                self.manager_lstm = tf.nn.rnn_cell.BasicLSTMCell(config["g_dim"])
+                initial_state = self.manager_lstm.zero_state(1, dtype=tf.float32)
+                g_hat, _ = tf.nn.dynamic_rnn(self.manager_lstm, tf.expand_dims(x, [0]),
+                                                          initial_state=initial_state,
+                                                          dtype=tf.float32)
+
+
+
 
             g_hat = tf.reshape(g_hat, shape=(-1, config["g_dim"]))
             self.g = tf.nn.l2_normalize(g_hat, dim=1)
