@@ -5,6 +5,8 @@ from __future__ import print_function
 import tensorflow as tf
 
 from ray.rllib.models import ModelCatalog
+import tensorflow.contrib.slim as slim
+from ray.rllib.models.misc import normc_initializer
 
 
 class ProximalPolicyLoss(object):
@@ -28,31 +30,79 @@ class ProximalPolicyLoss(object):
         self.actions = actions
         action_dim = action_space.shape[0]
 
-        self.curr_logits = ModelCatalog.get_model(
-            registry, observations, logit_dim, config["model"]).outputs
-        self.curr_dist = distribution_class(self.curr_logits)
+        hiddens_policy = [256, 256]
+        with tf.name_scope("policy_net"):
+            i = 1
+            last_layer = self.observations
+            for size in hiddens_policy:
+                label = "fc{}".format(i)
+                last_layer = slim.fully_connected(
+                    last_layer, size,
+                    weights_initializer=normc_initializer(1.0),
+                    activation_fn=tf.nn.tanh,
+                    scope=label)
+                i += 1
+
+            label = "fc_out"
+            self.curr_logits = slim.fully_connected(
+                last_layer, logit_dim,
+                weights_initializer=normc_initializer(0.01),
+                activation_fn=None, scope=label)
+
+            print("self.curr_logits")
+            print(self.curr_logits)
+
+            """
+            self.curr_logits = ModelCatalog.get_model(
+                registry, observations, logit_dim, config["model"]).outputs
+            """
+            self.curr_dist = distribution_class(self.curr_logits)
 
         self.sampler = self.curr_dist.sample()
 
-        if self.ADB:
-            self.input_Q_value = tf.concat([observations, actions], 1)
 
         if config["use_gae"]:
+
+            if self.ADB:
+                self.input_value_function = tf.concat([observations, actions], 1)
+            else:
+                self.input_value_function = self.observations
+
+            with tf.name_scope("value_function_net"):
+                i = 1
+                last_layer = self.input_value_function
+                for size in hiddens_policy:
+                    label = "fc{}".format(i)
+                    last_layer = slim.fully_connected(
+                        last_layer, size,
+                        weights_initializer=normc_initializer(1.0),
+                        activation_fn=tf.nn.relu,
+                        scope=label)
+                    i += 1
+
+                label = "fc_out"
+                out_ = slim.fully_connected(
+                        last_layer, 1,
+                        weights_initializer=normc_initializer(0.01),
+                        activation_fn=None, scope=label)
+                if self.ADB:
+                    self.Q_function = out_
+                else:
+                    self.value_function = out_
+            """
             vf_config = config["model"].copy()
-            # Do not split the last layer of the value function into
-            # mean parameters and standard deviation parameters and
-            # do not make the standard deviations free variables.
             vf_config["free_log_std"] = False
             if self.ADB:
                 with tf.variable_scope("Q_function"):
                     self.Q_function = ModelCatalog.get_model(
-                        registry, self.input_Q_value, 1, vf_config).outputs
+                        registry, self.input_value_function, 1, vf_config).outputs
                 self.Q_function = tf.reshape(self.Q_function, [-1])
             else:
                 with tf.variable_scope("value_function"):
                     self.value_function = ModelCatalog.get_model(
-                        registry, observations, 1, vf_config).outputs
+                        registry, self.input_value_function, 1, vf_config).outputs
                 self.value_function = tf.reshape(self.value_function, [-1])
+            """
 
         curr_r_matrix = self.curr_dist.r_matrix(actions)
         prev_r_matrix = self.prev_dist.r_matrix(actions)
