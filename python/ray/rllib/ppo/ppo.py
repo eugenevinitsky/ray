@@ -54,7 +54,7 @@ DEFAULT_CONFIG = {
     # Coefficient of the entropy regularizer
     "entropy_coeff": 0.0,
     # PPO clip parameter
-    "clip_param": 0.3,
+    "clip_param": 0.2,
     # Target value for KL divergence
     "kl_target": 0.01,
     # Config params to pass to the model
