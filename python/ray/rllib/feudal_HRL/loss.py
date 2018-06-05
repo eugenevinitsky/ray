@@ -33,7 +33,7 @@ class FeudalLoss(object):
         self.diff = diff
 
 
-
+        """
         with tf.variable_scope("CNN_filter"):
             conv1 = tf.layers.conv2d(inputs=self.observations,
                                          filters=16,
@@ -49,9 +49,9 @@ class FeudalLoss(object):
 
             flattened_filters = tf.reshape(conv2, [-1, np.prod(conv2.get_shape().as_list()[1:])])
 
-
+        """
         with tf.variable_scope("z"):
-            self.z = tf.layers.dense(inputs=flattened_filters, \
+            self.z = tf.layers.dense(inputs=self.observations, \
                                          units=config["units_z"], \
                                          activation=tf.nn.relu)
 
