@@ -34,7 +34,7 @@ DEFAULT_CONFIG = {
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
     # Stepsize of SGD
-    "sgd_stepsize": 5e-5,
+    "sgd_stepsize": 1e-3,
     # TODO(pcm): Expose the choice between gpus and cpus
     # as a command line argument.
     "devices": ["/cpu:%d" % i for i in range(4)],
