@@ -32,9 +32,8 @@ class FeudalEvaluator(PolicyEvaluator):
     network weights. When run as a remote agent, only this graph is used.
     """
 
-    def __init__(self, registry, env_creator, config, logdir, is_remote, ADB, ES):
+    def __init__(self, registry, env_creator, config, logdir, is_remote, ES):
         self.ES = ES
-        self.ADB = ADB
         self.registry = registry
         self.is_remote = is_remote
 
@@ -59,48 +58,34 @@ class FeudalEvaluator(PolicyEvaluator):
                 "has_inf_or_nan", tf_debug.has_inf_or_nan)
 
         # Defines the training inputs:
-        # The coefficient of the KL penalty.
-        self.kl_coeff = tf.placeholder(
-            name="newkl", shape=(), dtype=tf.float32)
 
         obs_space = self.env.observation_space
         action_space = self.env.action_space
-        action_dim = action_space.shape[0]
+        action_dim = action_space.n
+        print("obs_space")
+        print(obs_space)
+        print("action_space")
+        print(action_space)
         # The input observations.
 
+        self.gsum = tf.placeholder(
+            tf.float32, shape=(None, self.config["g_dim"]))
+        self.observations = tf.placeholder(
+            tf.float32, shape=(None,) + obs_space.shape)
+        self.value_targets_worker = tf.placeholder(tf.float32, shape=(None,))
+        self.advantages_worker = tf.placeholder(tf.float32, shape=(None, action_dim))
+        self.actions = tf.placeholder(tf.float32, shape=(None, action_dim))
         self.diff = tf.placeholder(
-                tf.float32, shape=(None, self.config["g_dim"]))
+            tf.float32, shape=(None, self.config["g_dim"]))
         self.value_targets_manager = tf.placeholder(tf.float32, shape=(None,))
         self.advantages_manager = tf.placeholder(tf.float32, shape=(None,))
-        self.prev_vf_preds_manager = tf.placeholder(tf.float32, shape=(None,))
 
-
-        self.gsum = tf.placeholder(
-                tf.float32, shape=(None, self.config["g_dim"]))
-        self.observations = tf.placeholder(
-            tf.float32, shape=(None, ) + obs_space.shape)
-
-        # Targets of the value functions.
-        self.value_targets_worker = tf.placeholder(tf.float32, shape=(None,))
-
-        if self.config["ADB"]:
-            self.advantages_worker = tf.placeholder(tf.float32, shape=(None, action_dim))
-        else:
-            self.advantages_worker = tf.placeholder(tf.float32, shape=(None,))
-
-        self.actions = ModelCatalog.get_action_placeholder(action_space)
         if self.ES:
             self.distribution_class_obs = None
         else:
             self.distribution_class_obs, self.obs_dim = ModelCatalog.get_obs_dist(obs_space)
-        self.distribution_class, self.logit_dim = ModelCatalog.get_action_dist(
-            action_space)
         # Log probabilities from the policy before the policy update.
-        self.prev_logits = tf.placeholder(
-            tf.float32, shape=(None, self.logit_dim))
-        # Value functions predictions before the policy update.
 
-        self.prev_vf_preds_worker = tf.placeholder(tf.float32, shape=(None,))
 
         if is_remote:
             self.batch_size = config["rollout_batchsize"]
@@ -112,20 +97,16 @@ class FeudalEvaluator(PolicyEvaluator):
             self.per_device_batch_size = int(self.batch_size / len(devices))
 
         def build_loss(gsum, obs, value_targets_worker, advantages_worker,
-                           acts, plog, prev_vf_preds_worker, diff, prev_vf_preds_manager, value_targets_manager, advantages_manager):
+                           acts, diff, value_targets_manager, advantages_manager):
                 return FeudalLoss(gsum,
                                   self.env.observation_space, self.env.action_space,
                                   obs, value_targets_worker, advantages_worker, acts,
-                                  plog, prev_vf_preds_worker,
-                                  self.logit_dim,
-                                  self.kl_coeff, self.distribution_class, self.distribution_class_obs, self.config,
-                                  self.sess, self.registry, self.ADB, self.ES,
-                                  diff, prev_vf_preds_manager, value_targets_manager, advantages_manager)
+                                  self.distribution_class_obs, self.config,
+                                  self.sess, self.registry, self.ES,
+                                  diff, value_targets_manager, advantages_manager)
 
         liste_inputs = [self.gsum, self.observations, self.value_targets_worker,
-             self.advantages_worker, self.actions, self.prev_logits, self.prev_vf_preds_worker]
-
-        liste_inputs += [self.diff, self.prev_vf_preds_manager, self.value_targets_manager, self.advantages_manager]
+             self.advantages_worker, self.actions, self.diff, self.value_targets_manager, self.advantages_manager]
 
         self.par_opt = LocalSyncParallelOptimizer_Feudal(
             tf.train.AdamOptimizer(self.config["sgd_stepsize"]),
@@ -161,9 +142,6 @@ class FeudalEvaluator(PolicyEvaluator):
             self.mean_vf_loss_worker = tf.reduce_mean(
                     tf.stack(values=[
                         policy.mean_vf_loss_worker for policy in policies_worker]), 0)
-            self.mean_kl = tf.reduce_mean(
-                    tf.stack(values=[
-                        policy.mean_kl for policy in policies_worker]), 0)
             self.mean_entropy_worker = tf.reduce_mean(
                     tf.stack(values=[
                         policy.mean_entropy_worker for policy in policies_worker]), 0)
@@ -193,17 +171,16 @@ class FeudalEvaluator(PolicyEvaluator):
                         "rew_filter": self.rew_filter}
         self.sampler = SyncSampler_Feudal(
             self.env, self.common_policy, self.obs_filter,
-            self.config["horizon"], self.ADB, self.config["c"], self.ES, self.config["horizon"])
+            self.config["horizon"], self.config["c"], self.ES, self.config["horizon"])
+
         self.sess.run(tf.global_variables_initializer())
 
     def load_data(self, trajectories, full_trace):
 
         liste_inputs_trajectories = [trajectories["gsum"], trajectories["obs"], trajectories["value_targets_worker"],
-                                    trajectories["advantages_worker"], trajectories["actions"],
-                                    trajectories["logprobs"], trajectories["vf_preds_worker"]]
+                                    trajectories["advantages_worker"], trajectories["actions"], trajectories["diff"],
+                                    trajectories["value_targets_manager"], trajectories["advantages_manager"]]
 
-        liste_inputs_trajectories += [trajectories["diff"], trajectories["vf_preds_manager"],
-                                         trajectories["value_targets_manager"], trajectories["advantages_manager"]]
         return self.par_opt.load_data(
                 self.sess,
             liste_inputs_trajectories,
@@ -220,7 +197,7 @@ class FeudalEvaluator(PolicyEvaluator):
             extra_ops=[self.loss_manager,  self.mean_vf_loss_manager, self.manager_policy_loss],
             file_writer=file_writer if full_trace else None)
 
-    def run_sgd_minibatch_worker(self, batch_index, kl_coeff, full_trace, file_writer):
+    def run_sgd_minibatch_worker(self, batch_index, full_trace, file_writer):
         return self.par_opt.optimize(
             self.sess,
             batch_index,
@@ -228,8 +205,7 @@ class FeudalEvaluator(PolicyEvaluator):
             worker=True,
             extra_ops=[
                 self.loss_worker, self.mean_policy_loss_worker, self.mean_vf_loss_worker,
-                self.mean_kl, self.mean_entropy_worker],
-            extra_feed_dict={self.kl_coeff: kl_coeff},
+                self.mean_entropy_worker],
             file_writer=file_writer if full_trace else None)
 
 
@@ -275,7 +251,7 @@ class FeudalEvaluator(PolicyEvaluator):
             rollout = self.sampler.get_data()
             samples = process_rollout_Feudal(self.config["c"], self.config["tradeoff_rewards"],
                                                  rollout, self.rew_filter, self.config["gamma"], self.config["gamma_internal"],\
-                                                 self.ADB, self.ES,
+                                                 self.ES,
                                                  self.config["lambda"], self.config["lambda_internal"],
                                                 use_gae=self.config["use_gae"])
 

@@ -1,0 +1,9 @@
+hopper-ppo:
+    env: Hero-v0
+    run: FEUDAL
+    trial_resources:
+        cpu: 1
+        gpu: 0
+        extra_cpu: 1
+    config:
+      ES: False

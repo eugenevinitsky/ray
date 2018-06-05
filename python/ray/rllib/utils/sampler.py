@@ -29,7 +29,7 @@ class PartialRollout_Feudal(object):
 
     fields = ["obs", "actions", "rewards", "new_obs", "dones", "features"]#, "s_diff", "gsum"]
 
-    field_specific_feudal = ["s", "g", ]
+    field_specific_feudal = ["s", "g"]
 
     def __init__(self, extra_fields=None):
         """Initializers internals. Maintains a `last_r` field
@@ -44,8 +44,8 @@ class PartialRollout_Feudal(object):
         self.data = {k: [] for k in self.fields}
         self.data_feudal = {k: [] for k in self.field_specific_feudal}
         self.last_r = 0.0
-        self.Q_function = []
         self.internal_rewards = []
+        self.Q_function = []
 
 
     def add(self, **kwargs):
@@ -58,7 +58,6 @@ class PartialRollout_Feudal(object):
 
     def set_Q_function(self, liste):
         self.Q_function = liste
-
 
     def extend(self, other_rollout):
         """Extends internal data structure. Assumes other_rollout contains
@@ -90,9 +89,8 @@ class SyncSampler_Feudal(object):
     async = False
 
     def __init__(self, env, policy, obs_filter,
-                 num_local_steps, ADB, c, ES, horizon=None):
+                 num_local_steps, c, ES, horizon=None):
         self.ES = ES
-        self.ADB = ADB
         self.num_local_steps = num_local_steps
         self.horizon = horizon
         self.env = env
@@ -100,7 +98,7 @@ class SyncSampler_Feudal(object):
         self._obs_filter = obs_filter
         self.rollout_provider = _env_runner_Feudal(
             self.env, self.policy, self.num_local_steps, self.horizon,
-            self._obs_filter, c, self.ADB, self.ES)
+            self._obs_filter, c, self.ES)
         self.metrics_queue = queue.Queue()
 
     def get_data(self):
@@ -122,7 +120,7 @@ class SyncSampler_Feudal(object):
 
 
 
-def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB, ES):
+def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES):
     """This implements the logic of the thread runner.
 
     It continually runs the policy, and as long as the rollout exceeds a
@@ -161,8 +159,6 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB
         terminal_end = False
         if ES:
             rollout = PartialRollout_Feudal(extra_fields=policy.other_output_ES)
-            print("ARE WE FUCKING HERE???")
-
         else:
             rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
 
@@ -178,12 +174,13 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB
             else:
                 g_s = np.append(g_s, [g], axis=0)
                 g_sum = g_s[-(c+1):].sum(axis=0)
-
             action, pi_info = policy.compute_worker(g_sum, last_observation, *last_features)
+            action_to_take = action.argmax()
+
             if policy.is_recurrent:
                 features = pi_info["features"]
                 del pi_info["features"]
-            observation, reward, terminal, info = env.step(action)
+            observation, reward, terminal, info = env.step(action_to_take)
             observation = obs_filter(observation)
 
             length += 1
@@ -227,10 +224,6 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB
 
         if not terminal_end:
             rollout.last_r = policy.value(last_observation, *last_features)
-
-        if ADB:
-            Q_functions = policy.compute_Q_fuctions(rollout.data["obs"], rollout.data["actions"])
-            rollout.set_Q_function(Q_functions)
 
         # Once we have enough experience, yield it, and have the ThreadRunner
         # place it on a queue.

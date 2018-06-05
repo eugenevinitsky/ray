@@ -41,7 +41,7 @@ def compute_internal_rewards(c, liste_s, liste_g):
 
     return internal_rewards / c
 
-def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, gamma_internal, ADB, ES, lambda_=1.0, lambda_internal= 0.97, use_gae=True):
+def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, gamma_internal, ES, lambda_=1.0, lambda_internal= 0.97, use_gae=True):
     """Given a rollout, compute its value targets and the advantage.
 
     Args:
@@ -60,6 +60,10 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
     for key in rollout.data:
         traj[key] = np.stack(rollout.data[key])
 
+    print("rollout.data[vf_preds_worker]")
+    print(rollout.data["vf_preds_worker"].shape)
+    print(rollout.data["vf_preds_worker"])
+
     for key in rollout.data_feudal:
         traj[key] = np.squeeze(np.stack(rollout.data_feudal[key]))
 
@@ -77,20 +81,24 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
         traj["advantages_manager"] = returns
         traj["value_targets_manager"] = returns
 
+    Q_function = np.transpose(np.array(rollout.Q_function))
 
-    if ADB:
-        Q_function = np.transpose(np.array(rollout.Q_function))
-        vpred_t_worker = np.vstack((Q_function, Q_function[-1]))
-        delta_t_worker = traj["rewards"].reshape(-1, 1) + tradeoff_rewards * internal_returns_ponctual.reshape(-1,
-                                                                                                               1) + gamma_internal * vpred_t_worker[
-                                                                                                                            1:] - vpred_t_worker[
-                                                                                                                                  :-1]
-    else:
-        vpred_t_worker = np.append(traj["vf_preds_worker"], [np.array(rollout.last_r)], axis=0)
-        delta_t_worker = traj["rewards"] + tradeoff_rewards * internal_returns_ponctual + gamma_internal * vpred_t_worker[1:] - vpred_t_worker[:-1]
+    print("Q_function")
+    print(Q_function.shape)
+    print(Q_function)
 
-    traj["advantages_worker"] = discount(delta_t_worker, gamma_internal * lambda_internal)
-    traj["value_targets_worker"] = returns + tradeoff_rewards * internal_returns
+    Q_pred_t = np.vstack((Q_function, Q_function[-1]))
+
+    delta_t_worker = internal_returns_ponctual.reshape(-1, 1) + gamma_internal * Q_pred_t[1:] - Q_pred_t[:-1]
+    print("delta_t_worker")
+    print(delta_t_worker)
+
+    traj["advantages_worker"] = traj["advantages_manager"].reshape(-1, 1)+ \
+                                tradeoff_rewards * discount(delta_t_worker, gamma_internal * lambda_internal)
+
+    print('traj["advantages_worker"]')
+    print(traj["advantages_worker"])
+    traj["value_targets_worker"] = internal_returns
 
 
     for i in range(traj["advantages_worker"].shape[0]):

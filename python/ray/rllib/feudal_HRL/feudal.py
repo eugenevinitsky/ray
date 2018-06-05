@@ -101,9 +101,7 @@ DEFAULT_CONFIG = {
     # Vf hidden size
     "vf_hidden_size" : 256,
     # Horizon of the manager
-    "c" : 2,
-    # Boolean variable if the Worker use ADB
-    "ADB" : True,
+    "c" : 10,
     # Dilatation rate
     "dilatation_rate" : 10,
     # WHETEHR THE MODE MANAGER ES IS ACTIVATED OR NOT
@@ -129,14 +127,14 @@ class FeudalAgent(Agent):
         self.kl_coeff = self.config["kl_coeff"]
 
         self.local_evaluator = FeudalEvaluator(
-            self.registry, self.env_creator, self.config, self.logdir, False, self.config["ADB"], self.ES)
+            self.registry, self.env_creator, self.config, self.logdir, True, self.ES)
 
         RemoteFeudalEvaluator = ray.remote(
             **self.config["worker_resources"])(FeudalEvaluator)
         self.remote_agents = [
             RemoteFeudalEvaluator.remote(
                 self.registry, self.env_creator, self.config, self.logdir,
-                True, self.config["ADB"], self.ES)
+                True, self.ES)
             for _ in range(self.config["num_workers"])]
         self.start_time = time.time()
         if self.config["write_logs"]:
