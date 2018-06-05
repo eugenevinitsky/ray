@@ -121,8 +121,6 @@ class FeudalLoss(object):
             weights_VF_worker = tf.get_variable("weights_VF_worker", (config["vf_hidden_size"], self.action_dim))
             self.value_function_worker = tf.matmul(hidden_VF_worker, weights_VF_worker)
 
-            print("self.value_function_worker")
-            print(self.value_function_worker)
 
             U = tf.reshape(outputs_worker, [-1, self.action_dim, config["k"]])
 

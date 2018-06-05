@@ -62,10 +62,6 @@ class FeudalEvaluator(PolicyEvaluator):
         obs_space = self.env.observation_space
         action_space = self.env.action_space
         action_dim = action_space.n
-        print("obs_space")
-        print(obs_space)
-        print("action_space")
-        print(action_space)
         # The input observations.
 
         self.gsum = tf.placeholder(

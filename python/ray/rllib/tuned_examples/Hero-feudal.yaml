@@ -1,11 +1,11 @@
 MsPacman:
     env: MsPacman-v0
     run: FEUDAL
-    stop: {"training_iteration": 250},
+    stop: {"training_iteration": 250}
     trial_resources:
         cpu: 1
         gpu: 0
-        extra_cpu: 19
+        extra_cpu: 1
     upload_dir: "s3://bucketlearningtraffic/Feudal"
     checkpoint_freq: 1
     repeat: 1
@@ -30,8 +30,8 @@ MsPacman:
       dilatation_rate: 10
       units_z: 256
       num_workers: 30
-      timesteps_per_batch: 2000 * 30
-      sgd_batchsize: 16 * 1024
+      timesteps_per_batch: 60000
+      sgd_batchsize: 1024
       vf_loss_coeff_manager: 1.0
       vf_loss_coeff_worker: 1.0
       min_steps_per_task: 200

@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "use_gae": True,
     # GAE(lambda) parameter
     "lambda": 0.97,
+    "model": {"free_log_std": False},
     # Initial coefficient for KL divergence
     "lambda_internal": 0.99,
     # Number of SGD iterations in each outer loop
@@ -38,7 +39,7 @@ DEFAULT_CONFIG = {
     # Stepsize of SGD
     "sgd_stepsize": np.exp(np.random.uniform(10**(-4.5), 10**(-3.5))),
     # Entropy coefficient
-    "entropy_coefficient": np.exp(np.random.uniform(10**(-4), 10**(-3))),
+    "entropy_coeff": np.exp(np.random.uniform(10**(-4), 10**(-3))),
     # Treadeoff rewards
     "tradeoff_rewards": np.random.uniform(0, 1),
     # TODO(pcm): Expose the choice between gpus and cpus
@@ -126,15 +127,15 @@ class FeudalAgent(Agent):
 
         """WARNING: 2 times number of workers in the case of ES!!!"""
         if self.config["ES"]:
-            num_workers = 2 * self.config["num_workers"]
+            self.num_workers = 2 * self.config["num_workers"]
         else:
-            num_workers = self.config["num_workers"]
+            self.num_workers = self.config["num_workers"]
 
         self.remote_agents = [
             RemoteFeudalEvaluator.remote(
                 self.registry, self.env_creator, self.config, self.logdir,
                 True, self.ES)
-            for _ in range(num_workers)]
+            for _ in range(self.num_workers)]
         self.start_time = time.time()
         if self.config["write_logs"]:
             self.file_writer = tf.summary.FileWriter(
@@ -147,8 +148,10 @@ class FeudalAgent(Agent):
         agents = self.remote_agents
         model = self.local_evaluator
         config = self.config
-
-        if (config["num_workers"] * config["min_steps_per_task"] >
+        print(config["min_steps_per_task"])
+        print(self.num_workers)
+        print(config["timesteps_per_batch"])
+        if (self.num_workers * config["min_steps_per_task"] >
                 config["timesteps_per_batch"]):
             print(
                 "WARNING: num_workers * min_steps_per_task > "
