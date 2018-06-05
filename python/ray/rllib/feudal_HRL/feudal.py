@@ -254,18 +254,20 @@ class FeudalAgent(Agent):
                     i == 0 and self.iteration == 0 and
                     batch_index == config["full_trace_nth_sgd_batch"])
                 if self.ES == False:
-                    batch_loss_manager, batch_vf_loss_manager,  batch_loss_policy_manager= model.run_sgd_minibatch_manager(
+                    batch_loss_manager, batch_vf_loss_manager, batch_loss_policy_manager, batch_loss_worker, batch_policy_loss_worker, batch_vf_loss_worker, \
+                    batch_entropy_worker = model.run_sgd_minibatch(
                             permutation[batch_index] * model.per_device_batch_size,
                             full_trace,
                             self.file_writer)
                     loss_manager.append(batch_loss_manager)
                     vf_loss_manager.append(batch_vf_loss_manager)
                     policy_loss_manager.append(batch_loss_policy_manager)
-
-                batch_loss_worker, batch_policy_loss_worker, batch_vf_loss_worker, \
-                    batch_entropy_worker = model.run_sgd_minibatch_worker(
+                else:
+                    batch_loss_worker, batch_policy_loss_worker, batch_vf_loss_worker, \
+                    batch_entropy_worker = model.run_sgd_minibatch(
                         permutation[batch_index] * model.per_device_batch_size,
                         full_trace, self.file_writer)
+
                 loss_worker.append(batch_loss_worker)
                 policy_loss_worker.append(batch_policy_loss_worker)
                 vf_loss_worker.append(batch_vf_loss_worker)

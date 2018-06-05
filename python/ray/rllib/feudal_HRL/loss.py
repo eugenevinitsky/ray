@@ -175,6 +175,19 @@ class FeudalLoss(object):
                         config["vf_loss_coeff_worker"] * self.vf_loss_worker -
                         config["entropy_coeff"] * self.entropy_worker)
 
+            if not (self.ES):
+                self.loss_total = tf.reduce_mean(
+                            -self.surr_manager +
+                            config["vf_loss_coeff_manager"] * self.vf_loss_manager
+                            -self.surr_worker +
+                            config["vf_loss_coeff_worker"] * self.vf_loss_worker -
+                            config["entropy_coeff"] * self.entropy_worker)
+            else:
+                self.loss_total = tf.reduce_mean(
+                    -self.surr_worker +
+                    config["vf_loss_coeff_worker"] * self.vf_loss_worker -
+                    config["entropy_coeff"] * self.entropy_worker)
+
             self.sess = sess
 
             if config["use_gae"]:
@@ -201,6 +214,9 @@ class FeudalLoss(object):
         return action, {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw, "logprobs": logprobs[0]}
 
 
+
+    def loss_total(self):
+        return self.loss_total
 
     def loss_manager(self):
         return self.loss_manager

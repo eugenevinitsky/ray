@@ -111,7 +111,6 @@ class FeudalEvaluator(PolicyEvaluator):
             liste_inputs,
             self.per_device_batch_size,
             build_loss,
-            self.ES,
             self.logdir)
 
         # Metric ops
@@ -184,27 +183,17 @@ class FeudalEvaluator(PolicyEvaluator):
                 full_trace=full_trace)
 
 
-    def run_sgd_minibatch_manager(
-            self, batch_index, full_trace, file_writer):
+    def run_sgd_minibatch(self, batch_index, full_trace, file_writer):
+        extra_ops = [
+            self.loss_worker, self.mean_policy_loss_worker, self.mean_vf_loss_worker,
+            self.mean_entropy_worker]
+        if not(self.ES):
+            extra_ops = [self.loss_manager,  self.mean_vf_loss_manager, self.manager_policy_loss] + extra_ops
         return self.par_opt.optimize(
             self.sess,
             batch_index,
-            manager=True,
-            worker=False,
-            extra_ops=[self.loss_manager,  self.mean_vf_loss_manager, self.manager_policy_loss],
+            extra_ops=extra_ops,
             file_writer=file_writer if full_trace else None)
-
-    def run_sgd_minibatch_worker(self, batch_index, full_trace, file_writer):
-        return self.par_opt.optimize(
-            self.sess,
-            batch_index,
-            manager=False,
-            worker=True,
-            extra_ops=[
-                self.loss_worker, self.mean_policy_loss_worker, self.mean_vf_loss_worker,
-                self.mean_entropy_worker],
-            file_writer=file_writer if full_trace else None)
-
 
     def compute_gradients(self, samples):
         raise NotImplementedError
