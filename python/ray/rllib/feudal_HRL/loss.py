@@ -73,7 +73,6 @@ class FeudalLoss(object):
             x = tf.expand_dims(self.s, [0])
 
             with tf.variable_scope("LSTM"):
-
                 """
                 self.manager_lstm = SingleStepLSTM(size=config["g_dim"], dilatation_rate=config["dilatation_rate"])
                 g_hat = self.manager_lstm.compute_step(x, step_size=tf.shape(self.observations)[:1])
@@ -180,13 +179,13 @@ class FeudalLoss(object):
                             -self.surr_manager +
                             config["vf_loss_coeff_manager"] * self.vf_loss_manager
                             -self.surr_worker +
-                            config["vf_loss_coeff_worker"] * self.vf_loss_worker -
-                            config["entropy_coeff"] * self.entropy_worker)
+                            config["vf_loss_coeff_worker"] * self.vf_loss_worker
+                            -config["entropy_coeff"] * self.entropy_worker)
             else:
                 self.loss_total = tf.reduce_mean(
                     -self.surr_worker +
-                    config["vf_loss_coeff_worker"] * self.vf_loss_worker -
-                    config["entropy_coeff"] * self.entropy_worker)
+                    config["vf_loss_coeff_worker"] * self.vf_loss_worker
+                    -config["entropy_coeff"] * self.entropy_worker)
 
             self.sess = sess
 

@@ -10,7 +10,7 @@ MsPacman:
     checkpoint_freq: 1
     repeat: 1
     config:
-      ES: True
+      ES: False
       noise_stdev: 0.1
       alpha: 0.01
       gamma: 0.99
