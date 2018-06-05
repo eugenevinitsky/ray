@@ -35,7 +35,7 @@ class ProximalPolicyLoss(object):
             i = 1
             last_layer = self.observations
             for size in hiddens_policy:
-                label = "fc{}".format(i)
+                label = "policy_net_fc{}".format(i)
                 last_layer = slim.fully_connected(
                     last_layer, size,
                     weights_initializer=normc_initializer(1.0),
@@ -43,14 +43,11 @@ class ProximalPolicyLoss(object):
                     scope=label)
                 i += 1
 
-            label = "fc_out"
+            label = "policy_net_fc_out"
             self.curr_logits = slim.fully_connected(
                 last_layer, logit_dim,
                 weights_initializer=normc_initializer(0.01),
                 activation_fn=None, scope=label)
-
-            print("self.curr_logits")
-            print(self.curr_logits)
 
             """
             self.curr_logits = ModelCatalog.get_model(
@@ -72,7 +69,7 @@ class ProximalPolicyLoss(object):
                 i = 1
                 last_layer = self.input_value_function
                 for size in hiddens_policy:
-                    label = "fc{}".format(i)
+                    label = "value_function_net_fc{}".format(i)
                     last_layer = slim.fully_connected(
                         last_layer, size,
                         weights_initializer=normc_initializer(1.0),
@@ -80,15 +77,15 @@ class ProximalPolicyLoss(object):
                         scope=label)
                     i += 1
 
-                label = "fc_out"
+                label = "value_function_net_fc_out"
                 out_ = slim.fully_connected(
                         last_layer, 1,
                         weights_initializer=normc_initializer(0.01),
                         activation_fn=None, scope=label)
                 if self.ADB:
-                    self.Q_function = out_
+                    self.Q_function = tf.reshape(out_, [-1])
                 else:
-                    self.value_function = out_
+                    self.value_function = tf.reshape(out_, [-1])
             """
             vf_config = config["model"].copy()
             vf_config["free_log_std"] = False
