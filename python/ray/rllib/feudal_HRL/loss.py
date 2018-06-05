@@ -52,7 +52,7 @@ class FeudalLoss(object):
         
         with tf.variable_scope("z"):
             
-            self.z = tf.layers.dense(inputs=self.observations, \
+            self.z = tf.layers.dense(inputs=flattened_filters, \
                                          units=config["units_z"], \
                                          activation=tf.nn.relu)
 
@@ -80,10 +80,10 @@ class FeudalLoss(object):
                 """
                 self.manager_lstm = tf.nn.rnn_cell.BasicLSTMCell(config["g_dim"])
                 initial_state = self.manager_lstm.zero_state(1, dtype=tf.float32)
-                g_hat, _ = tf.nn.dynamic_rnn(self.manager_lstm, tf.expand_dims(x, [0]),
+                g_hat, _ = tf.nn.dynamic_rnn(self.manager_lstm, x,
                                                           initial_state=initial_state,
                                                           dtype=tf.float32)
-
+                g_hat = tf.squeeze(g_hat, axis=0)
 
 
 
