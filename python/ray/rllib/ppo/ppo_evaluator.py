@@ -15,7 +15,7 @@ from ray.rllib.optimizers import PolicyEvaluator, SampleBatch
 from ray.rllib.optimizers.multi_gpu_impl import LocalSyncParallelOptimizer
 from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.sampler import SyncSampler
-from ray.rllib.utils.filter import get_filter, MeanStdFilter
+from ray.rllib.utils.filter import NoFilter, get_filter, MeanStdFilter
 from ray.rllib.utils.process_rollout import process_rollout
 from ray.rllib.ppo.loss import ProximalPolicyLoss
 
@@ -133,7 +133,7 @@ class PPOEvaluator(PolicyEvaluator):
 
         self.obs_filter = get_filter(
             config["observation_filter"], self.env.observation_space.shape)
-        self.rew_filter = MeanStdFilter((), clip=5.0)
+        self.rew_filter = NoFilter()
         self.filters = {"obs_filter": self.obs_filter,
                         "rew_filter": self.rew_filter}
         self.sampler = SyncSampler(
