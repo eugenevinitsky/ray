@@ -35,7 +35,6 @@ DEFAULT_CONFIG = {
     "lambda": 0.97,
     # Initial coefficient for KL divergence
     "lambda_internal": 0.99,
-    "kl_coeff": 0.2,
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
     # Stepsize of SGD
@@ -62,12 +61,10 @@ DEFAULT_CONFIG = {
     "entropy_coeff": 0.0,
     # PPO clip parameter
     "clip_param": 0.2,
-    # Target value for KL divergence
-    "kl_target": 0.01,
     # Config params to pass to the model
     "model": {"free_log_std": False},
     # Which observation filter to apply to the observation
-    "observation_filter": "MeanStdFilter",
+    "observation_filter": "NoFilter",
     # If >1, adds frameskip
     "extra_frameskip": 1,
     # Number of timesteps collected in each outer loop
@@ -110,8 +107,8 @@ DEFAULT_CONFIG = {
     "noise_stdev" : 0.1,
     # Hyperparameter for the manager's weights update rule
     "alpha": 1.0,
-    # Add a CNN filter if activated
-    "activate_filter": False
+    # Size of the perceptrons layer before z
+    "units_z": 256
 }
 
 
@@ -124,18 +121,24 @@ class FeudalAgent(Agent):
     def _init(self):
         self.ES = self.config["ES"]
         self.global_step = 0
-        self.kl_coeff = self.config["kl_coeff"]
 
         self.local_evaluator = FeudalEvaluator(
             self.registry, self.env_creator, self.config, self.logdir, True, self.ES)
 
         RemoteFeudalEvaluator = ray.remote(
             **self.config["worker_resources"])(FeudalEvaluator)
+
+        """WARNING: 2 times number of workers in the case of ES!!!"""
+        if self.config["ES"]:
+            num_workers = 2 * self.config["num_workers"]
+        else:
+            num_workers = self.config["num_workers"]
+
         self.remote_agents = [
             RemoteFeudalEvaluator.remote(
                 self.registry, self.env_creator, self.config, self.logdir,
                 True, self.ES)
-            for _ in range(self.config["num_workers"])]
+            for _ in range(num_workers)]
         self.start_time = time.time()
         if self.config["write_logs"]:
             self.file_writer = tf.summary.FileWriter(
@@ -164,6 +167,8 @@ class FeudalAgent(Agent):
 
         if self.ES:
             weights_manager_outputs = model.get_weights_manager_loss()
+            print("weights_manager_outputs")
+            print(weights_manager_outputs)
             count_1 = 0
             count_2 = 0
             for a in agents:
@@ -176,10 +181,16 @@ class FeudalAgent(Agent):
                     seed = count_1 * len(agents) + count_2 * len(key)
                     shape = weights_manager_outputs_agent[key].shape
                     noise_ = np.random.RandomState(seed).normal(loc=0.0, scale=1.0, size=shape).astype(np.float32)
-                    weights_manager_outputs_agent[key] += self.config["noise_stdev"] * noise_
-                    noise_agent[key] = noise_
-                self.noise_table[index] = noise_agent
 
+                    """TO REDUCE VARIANCE +epsilon AND -epsilon"""
+                    if count_1%2==0:
+                        weights_manager_outputs_agent[key] += self.config["noise_stdev"] * noise_
+                        noise_agent[key] = noise_
+                    else:
+                        weights_manager_outputs_agent[key] -= self.config["noise_stdev"] * noise_
+                        noise_agent[key] = -noise_
+
+                self.noise_table[index] = noise_agent
 
                 a.set_weights_manager_loss.remote(weights_manager_outputs_agent)
 
@@ -190,6 +201,8 @@ class FeudalAgent(Agent):
 
 
         weights_worker_loss = ray.put(model.get_weights_worker_loss())
+        print("weights_worker_loss")
+        print(model.get_weights_worker_loss())
         [a.set_weights_worker_loss.remote(weights_worker_loss) for a in agents]
 
         samples = collect_samples(agents, config, self.local_evaluator)
@@ -208,11 +221,11 @@ class FeudalAgent(Agent):
               ", stepsize=" + str(config["sgd_stepsize"]) + "):")
         if self.ES:
             names = [
-                "iter", "loss_worker", "policy_loss_worker", "vf_loss_worker", "kl", "entropy_worker"]
+                "iter", "loss_worker", "policy_loss_worker", "vf_loss_worker", "entropy_worker"]
         else:
             names = [
                 "iter", "loss_manager", "vf_loss_manager", "policy_loss_manager", "loss_worker", "policy_loss_worker",
-                "vf_loss_worker", "kl", "entropy_worker"]
+                "vf_loss_worker", "entropy_worker"]
 
         print(("{:>15}" * len(names)).format(*names))
         samples.shuffle()
@@ -230,9 +243,9 @@ class FeudalAgent(Agent):
             num_batches = (
                 int(tuples_per_device) // int(model.per_device_batch_size))
             if self.ES:
-                loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker = [], [], [], [], []
+                loss_worker, policy_loss_worker, vf_loss_worker, entropy_worker = [], [], [], []
             else:
-                loss_manager, vf_loss_manager, policy_loss_manager, loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker = [], [], [], [], [], [], [], []
+                loss_manager, vf_loss_manager, policy_loss_manager, loss_worker, policy_loss_worker, vf_loss_worker, entropy_worker = [], [], [], [], [], [], []
             permutation = np.random.permutation(num_batches)
             # Prepare to drop into the debugger
             if self.iteration == config["tf_debug_iteration"]:
@@ -250,15 +263,13 @@ class FeudalAgent(Agent):
                     vf_loss_manager.append(batch_vf_loss_manager)
                     policy_loss_manager.append(batch_loss_policy_manager)
 
-                batch_loss_worker, batch_policy_loss_worker, batch_vf_loss_worker, batch_kl, \
+                batch_loss_worker, batch_policy_loss_worker, batch_vf_loss_worker, \
                     batch_entropy_worker = model.run_sgd_minibatch_worker(
                         permutation[batch_index] * model.per_device_batch_size,
-                        self.kl_coeff, full_trace,
-                        self.file_writer)
+                        full_trace, self.file_writer)
                 loss_worker.append(batch_loss_worker)
                 policy_loss_worker.append(batch_policy_loss_worker)
                 vf_loss_worker.append(batch_vf_loss_worker)
-                kl.append(batch_kl)
                 entropy_worker.append(batch_entropy_worker)
                 batch_index += 1
             if self.ES == False:
@@ -268,26 +279,21 @@ class FeudalAgent(Agent):
             loss_worker = np.mean(loss_worker)
             policy_loss_worker = np.mean(policy_loss_worker)
             vf_loss_worker= np.mean(vf_loss_worker)
-            kl = np.mean(kl)
             entropy_worker = np.mean(entropy_worker)
             sgd_end = time.time()
             if self.ES:
                 print(
-                    "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
-                        i, loss_worker, policy_loss_worker, vf_loss_worker, kl, entropy_worker))
+                    "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
+                        i, loss_worker, policy_loss_worker, vf_loss_worker, entropy_worker))
             else:
                 print(
-                    "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
+                    "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
                         i, loss_manager, vf_loss_manager, policy_loss_manager, loss_worker, policy_loss_worker,
-                        vf_loss_worker, kl, entropy_worker))
+                        vf_loss_worker, entropy_worker))
 
             values = []
             if i == config["num_sgd_iter"] - 1:
                 metric_prefix = "HRL/sgd/final_iter/"
-                values.append(tf.Summary.Value(
-                    tag=metric_prefix + "kl_coeff",
-                    simple_value=np.mean(self.kl_coeff)))
-
                 liste_values = [tf.Summary.Value(
                         tag=metric_prefix + "mean_entropy",
                         simple_value=entropy_worker)]
@@ -304,10 +310,7 @@ class FeudalAgent(Agent):
                         simple_value=policy_loss_worker),
                     tf.Summary.Value(
                         tag=metric_prefix + "mean_VF_loss_worker",
-                        simple_value=vf_loss_worker),
-                    tf.Summary.Value(
-                        tag=metric_prefix + "mean_kl",
-                        simple_value=kl)]
+                        simple_value=vf_loss_worker)]
                 values.extend(liste_values)
                 if self.file_writer:
                     sgd_stats = tf.Summary(value=values)
@@ -325,14 +328,8 @@ class FeudalAgent(Agent):
             self.global_step += 1
             sgd_time += sgd_end - sgd_start
 
-        if kl > 2.0 * config["kl_target"]:
-            self.kl_coeff *= 1.5
-        elif kl < 0.5 * config["kl_target"]:
-            self.kl_coeff *= 0.5
 
         info = {
-            "kl_divergence": np.mean(kl),
-            "kl_coefficient": np.mean(self.kl_coeff),
             "rollouts_time": rollouts_time,
             "shuffle_time": shuffle_time,
             "load_time": load_time,
@@ -372,7 +369,7 @@ class FeudalAgent(Agent):
             for i in range(len(self.remote_agents)):
                 noise = self.noise_table[i]
                 for key, variable in weights_manager_outputs.items():
-                    weights_manager_outputs[key] -= self.config["alpha"] * (1 / denominator) * noise[key] * \
+                    weights_manager_outputs[key] += self.config["alpha"] * (1 / denominator) * noise[key] * \
                                                     episode_rewards_agents[i]
 
             self.local_evaluator.set_weights_manager_loss(weights_manager_outputs)
@@ -406,7 +403,6 @@ class FeudalAgent(Agent):
         extra_data = [
             self.local_evaluator.save(),
             self.global_step,
-            self.kl_coeff,
             agent_state]
         pickle.dump(extra_data, open(checkpoint_path + ".extra_data", "wb"))
         return checkpoint_path
@@ -416,7 +412,6 @@ class FeudalAgent(Agent):
         extra_data = pickle.load(open(checkpoint_path + ".extra_data", "rb"))
         self.local_evaluator.restore(extra_data[0])
         self.global_step = extra_data[1]
-        self.kl_coeff = extra_data[2]
         ray.get([
             a.restore.remote(o)
                 for (a, o) in zip(self.remote_agents, extra_data[3])])

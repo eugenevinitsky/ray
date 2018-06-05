@@ -29,7 +29,7 @@ class PartialRollout_Feudal(object):
 
     fields = ["obs", "actions", "rewards", "new_obs", "dones", "features"]#, "s_diff", "gsum"]
 
-    field_specific_feudal = ["s", "g"]
+    field_specific_feudal = ["s", "g", "z"]
 
     def __init__(self, extra_fields=None):
         """Initializers internals. Maintains a `last_r` field
@@ -157,14 +157,9 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
     g_s = 0
     while True:
         terminal_end = False
-        if ES:
-            rollout = PartialRollout_Feudal(extra_fields=policy.other_output_ES)
-        else:
-            rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
-
-
+        rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
         for step in range(num_local_steps):
-            s, g = policy.compute_manager(last_observation, *last_features)
+            s, g, z = policy.compute_manager(last_observation, *last_features)
             if step == 0:
                 g_s = np.array([g])
                 g_sum = g
@@ -174,7 +169,7 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
             else:
                 g_s = np.append(g_s, [g], axis=0)
                 g_sum = g_s[-(c+1):].sum(axis=0)
-            action, pi_info = policy.compute_worker(g_sum, last_observation, *last_features)
+            action, pi_info = policy.compute_worker(z, g_sum, last_observation, *last_features)
             action_to_take = action.argmax()
 
             if policy.is_recurrent:
@@ -201,7 +196,8 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
                         new_obs=observation,
                         **pi_info)
             rollout.add_feudal(s=s,
-                               g=g)
+                               g=g,
+                               z=z)
 
             last_observation = observation
             last_features = features

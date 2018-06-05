@@ -14,21 +14,22 @@ class FeudalLoss(object):
 
 
     other_output = ["vf_preds_manager", "vf_preds_worker", "logprobs"]
-    other_output_ES = ["vf_preds_worker", "logprobs"]
     is_recurrent = False
 
     def __init__(
-            self, gsum, observation_space, action_space,
+            self, __gsum__, __z__, observation_space, action_space,
             observations, value_targets_worker, advantages_worker, actions,
             distribution_class_obs, config, sess, registry, ES,
             diff=None, value_targets_manager=None, advantages_manager=None):
+
+        self.carried_z = tf.stop_gradient(__z__)
+        self.carried_gsum = tf.stop_gradient(__gsum__)
 
         self.ES = ES
         self.action_dim= action_space.n
         self.actions = actions
         # Saved so that we can compute actions given different observations
         self.observations = tf.cast(observations, tf.float32)
-        self.g_sum = tf.stop_gradient(gsum)
         self.diff = diff
 
 
@@ -49,9 +50,9 @@ class FeudalLoss(object):
             flattened_filters = tf.reshape(conv2, [-1, np.prod(conv2.get_shape().as_list()[1:])])
 
 
-            with tf.variable_scope("z"):
-                self.z = tf.layers.dense(inputs=flattened_filters, \
-                                         units=256, \
+        with tf.variable_scope("z"):
+            self.z = tf.layers.dense(inputs=flattened_filters, \
+                                         units=config["units_z"], \
                                          activation=tf.nn.relu)
 
 
@@ -70,17 +71,18 @@ class FeudalLoss(object):
             g_hat = tf.reshape(g_hat, shape=(-1, config["g_dim"]))
             self.g = tf.nn.l2_normalize(g_hat, dim=1)
 
+            self.manager_output = self.g
+
+
             hidden_manager = tf.layers.dense(inputs=g_hat, \
-                                     units=config["vf_hidden_size"], \
-                                     activation=tf.nn.elu)
+                                                 units=config["vf_hidden_size"], \
+                                                 activation=tf.nn.elu)
 
             weights_VF_manager = tf.get_variable("weights_VF_manager", (config["vf_hidden_size"], 1))
             self.value_function_manager = tf.matmul(hidden_manager, weights_VF_manager)
 
-            if self.ES:
-                self.manager_logits = self.g
+            if not(self.ES):
 
-            else:
                 self.manager_logits = distribution_class_obs(self.g, config["kappa"], observation_space.shape[0])
                 vf_config = config["model"].copy()
                 vf_config["free_log_std"] = False
@@ -107,11 +109,11 @@ class FeudalLoss(object):
 
             with tf.variable_scope("LSTM"):
 
-                new_z = tf.stop_gradient(self.z)
+                #self.new_z = tf.stop_gradient(self.z)
                 dimension_lstm_worker = self.action_dim * config["k"]
                 lstm_cell_worker = tf.nn.rnn_cell.BasicLSTMCell(dimension_lstm_worker)
                 initial_state = lstm_cell_worker.zero_state(1, dtype=tf.float32)
-                outputs_worker, state = tf.nn.dynamic_rnn(lstm_cell_worker, tf.expand_dims(new_z, [0]),
+                outputs_worker, state = tf.nn.dynamic_rnn(lstm_cell_worker, tf.expand_dims(self.carried_z , [0]),
                                                    initial_state=initial_state,
                                                    dtype=tf.float32)
 
@@ -122,7 +124,7 @@ class FeudalLoss(object):
                                      units=config["vf_hidden_size"], \
                                      activation=tf.nn.elu)
 
-            weights_VF_worker = tf.get_variable("weights", (config["vf_hidden_size"], self.action_dim))
+            weights_VF_worker = tf.get_variable("weights_VF_worker", (config["vf_hidden_size"], self.action_dim))
             self.value_function_worker = tf.matmul(hidden_VF_worker, weights_VF_worker)
 
             print("self.value_function_worker")
@@ -133,7 +135,7 @@ class FeudalLoss(object):
             # Calculate w
 
             phi = tf.get_variable("phi", (config["g_dim"], config['k']))
-            w = tf.matmul(self.g_sum, phi)
+            w = tf.matmul(self.carried_gsum, phi)
             w = tf.expand_dims(w, [2])
             # Calculate policy and sample
             self.curr_logits = tf.reshape(tf.matmul(U, w), [-1, self.action_dim])
@@ -148,15 +150,10 @@ class FeudalLoss(object):
             self.sampler = categorical_sample(
                 tf.reshape(self.curr_logits, [-1, self.action_dim]), self.action_dim)[0, :]
 
-            print("self.sample")
-            print(self.sampler)
-
-
-
             self.entropy_worker =-tf.reduce_sum(self.pi * self.log_pi)
             self.mean_entropy_worker = tf.reduce_mean(self.entropy_worker)
 
-            self.vf_loss_worker = tf.square(self.value_function_worker - value_targets_worker)
+            self.vf_loss_worker = tf.square(self.value_function_worker * self.actions - value_targets_worker)
             self.mean_vf_loss_worker = tf.reduce_mean(self.vf_loss_worker)
 
             self.surr_worker = tf.reduce_sum(self.log_pi * advantages_worker, [1])
@@ -171,7 +168,7 @@ class FeudalLoss(object):
 
             if config["use_gae"]:
                 self.policy_warmup = [
-                    self.s, self.g
+                    self.s, self.g, self.z
                 ]
 
                 self.policy_results = [
@@ -179,15 +176,15 @@ class FeudalLoss(object):
 
 
     def compute_manager(self, observation):
-        s, g  = self.sess.run(
+        s, g, z  = self.sess.run(
             self.policy_warmup,
             feed_dict={self.observations: [observation]})
-        return s, g
+        return s, g, z
 
-    def compute_worker(self, gsum, observation):
+    def compute_worker(self, z, gsum, observation):
         action, logprobs, vfm, vfw = self.sess.run(
                     self.policy_results,
-                    feed_dict={self.observations: [observation], self.g_sum: gsum})
+                    feed_dict={self.observations: [observation], self.carried_z: z, self.carried_gsum: gsum})
 
         return action, {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw, "logprobs": logprobs[0]}
 
@@ -198,8 +195,8 @@ class FeudalLoss(object):
     def mean_vf_loss_manager(self):
         return self.mean_vf_loss_manager
 
-    def manager_logits(self):
-        return self.manager_logits
+    def manager_output(self):
+        return self.manager_output
 
     def loss_worker(self):
         return self.loss_worker

@@ -6,4 +6,5 @@ hopper-ppo:
         gpu: 0
         extra_cpu: 1
     config:
-      ES: False
+      ES: True
+      num_workers: 2

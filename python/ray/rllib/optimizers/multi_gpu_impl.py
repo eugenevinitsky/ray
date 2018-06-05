@@ -93,6 +93,10 @@ class LocalSyncParallelOptimizer_Feudal(object):
                 self._train_op_loss_manager = self.optimizer.apply_gradients(avg)
 
             avg = average_gradients([t.grads for t in self._towers_loss_worker])
+
+            print("GRADIENTS OF WORKER")
+            for t in self._towers_loss_worker:
+                print(t.grads)
             if grad_norm_clipping:
                 for i, (grad, var) in enumerate(avg):
                     if grad is not None:

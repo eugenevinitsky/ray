@@ -70,6 +70,8 @@ class FeudalEvaluator(PolicyEvaluator):
 
         self.gsum = tf.placeholder(
             tf.float32, shape=(None, self.config["g_dim"]))
+        self.z_to_feed = tf.placeholder(
+            tf.float32, shape=(None, self.config["units_z"]))
         self.observations = tf.placeholder(
             tf.float32, shape=(None,) + obs_space.shape)
         self.value_targets_worker = tf.placeholder(tf.float32, shape=(None,))
@@ -86,7 +88,6 @@ class FeudalEvaluator(PolicyEvaluator):
             self.distribution_class_obs, self.obs_dim = ModelCatalog.get_obs_dist(obs_space)
         # Log probabilities from the policy before the policy update.
 
-
         if is_remote:
             self.batch_size = config["rollout_batchsize"]
             self.per_device_batch_size = config["rollout_batchsize"]
@@ -96,16 +97,16 @@ class FeudalEvaluator(PolicyEvaluator):
             assert self.batch_size % len(devices) == 0
             self.per_device_batch_size = int(self.batch_size / len(devices))
 
-        def build_loss(gsum, obs, value_targets_worker, advantages_worker,
+        def build_loss(gsum, z_to_feed, obs, value_targets_worker, advantages_worker,
                            acts, diff, value_targets_manager, advantages_manager):
-                return FeudalLoss(gsum,
+                return FeudalLoss(gsum, z_to_feed,
                                   self.env.observation_space, self.env.action_space,
                                   obs, value_targets_worker, advantages_worker, acts,
                                   self.distribution_class_obs, self.config,
                                   self.sess, self.registry, self.ES,
                                   diff, value_targets_manager, advantages_manager)
 
-        liste_inputs = [self.gsum, self.observations, self.value_targets_worker,
+        liste_inputs = [self.gsum, self.z_to_feed, self.observations, self.value_targets_worker,
              self.advantages_worker, self.actions, self.diff, self.value_targets_manager, self.advantages_manager]
 
         self.par_opt = LocalSyncParallelOptimizer_Feudal(
@@ -153,7 +154,7 @@ class FeudalEvaluator(PolicyEvaluator):
 
         if self.ES:
             self.variables_manager_loss = ray.experimental.TensorFlowVariables(
-                self.common_policy.manager_logits, self.sess)
+                self.common_policy.manager_output, self.sess)
 
         else:
             self.variables_manager_loss = ray.experimental.TensorFlowVariables(
@@ -177,7 +178,7 @@ class FeudalEvaluator(PolicyEvaluator):
 
     def load_data(self, trajectories, full_trace):
 
-        liste_inputs_trajectories = [trajectories["gsum"], trajectories["obs"], trajectories["value_targets_worker"],
+        liste_inputs_trajectories = [trajectories["gsum"], trajectories["z_to_feed"], trajectories["obs"], trajectories["value_targets_worker"],
                                     trajectories["advantages_worker"], trajectories["actions"], trajectories["diff"],
                                     trajectories["value_targets_manager"], trajectories["advantages_manager"]]
 

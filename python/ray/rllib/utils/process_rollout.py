@@ -55,17 +55,18 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
         SampleBatch (SampleBatch): Object with experience from rollout and
             processed rewards."""
 
+    # TODO: WORK MORE CLOSELY ON ADVANTAGES AND TARGETS
+
     traj = {}
     trajsize = len(rollout.data["actions"])
     for key in rollout.data:
-        traj[key] = np.stack(rollout.data[key])
-
-    print("rollout.data[vf_preds_worker]")
-    print(rollout.data["vf_preds_worker"].shape)
-    print(rollout.data["vf_preds_worker"])
+        traj[key] = np.squeeze(np.stack(rollout.data[key]))
 
     for key in rollout.data_feudal:
         traj[key] = np.squeeze(np.stack(rollout.data_feudal[key]))
+
+    Q_functions = np.array(traj["vf_preds_worker"])
+    Q_max = np.amax(Q_functions, axis=1)
 
     returns = discount_sum(traj["rewards"], gamma)
     internal_returns_ponctual = compute_internal_rewards(c, traj["s"], traj["g"])
@@ -81,24 +82,18 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
         traj["advantages_manager"] = returns
         traj["value_targets_manager"] = returns
 
-    Q_function = np.transpose(np.array(rollout.Q_function))
+    Q_pred_t = np.vstack((Q_functions, Q_functions[-1]))
 
-    print("Q_function")
-    print(Q_function.shape)
-    print(Q_function)
 
-    Q_pred_t = np.vstack((Q_function, Q_function[-1]))
-
-    delta_t_worker = internal_returns_ponctual.reshape(-1, 1) + gamma_internal * Q_pred_t[1:] - Q_pred_t[:-1]
-    print("delta_t_worker")
-    print(delta_t_worker)
-
-    traj["advantages_worker"] = traj["advantages_manager"].reshape(-1, 1)+ \
+    if ES == False:
+        delta_t_worker = internal_returns_ponctual.reshape(-1, 1) + gamma_internal * Q_pred_t[1:] - Q_pred_t[:-1]
+        traj["advantages_worker"] = traj["advantages_manager"].reshape(-1, 1)+ \
                                 tradeoff_rewards * discount(delta_t_worker, gamma_internal * lambda_internal)
+    else:
+        delta_t_worker = traj["rewards"].reshape(-1, 1) + tradeoff_rewards * internal_returns_ponctual.reshape(-1, 1) + gamma_internal * Q_pred_t[1:] - Q_pred_t[:-1]
+        traj["advantages_worker"] = discount(delta_t_worker, gamma_internal * lambda_internal)
 
-    print('traj["advantages_worker"]')
-    print(traj["advantages_worker"])
-    traj["value_targets_worker"] = internal_returns
+    traj["value_targets_worker"] = internal_returns_ponctual + gamma_internal * Q_max
 
 
     for i in range(traj["advantages_worker"].shape[0]):
