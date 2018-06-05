@@ -1,10 +1,13 @@
 MsPacman:
     env: MsPacman-v0
     run: FEUDAL
+    stop: {"training_iteration": 250},
     trial_resources:
         cpu: 1
         gpu: 0
         extra_cpu: 19
+    upload_dir: "s3://bucketlearningtraffic/Feudal"
+    checkpoint_freq: 1
     repeat: 1
     config:
       ES: True
@@ -17,7 +20,7 @@ MsPacman:
       #"tradeoff_rewards": np.random.uniform(0, 1),
       horizon: 2000
       use_gae: True
-      lambda": 0.97
+      lambda: 0.97
       lambda_internal: 0.97
       g_dim: 256
       kappa: 1.0
@@ -34,5 +37,3 @@ MsPacman:
       min_steps_per_task: 200
       num_sgd_iter: 30
       observation_filter: "NoFilter"
-
-}
