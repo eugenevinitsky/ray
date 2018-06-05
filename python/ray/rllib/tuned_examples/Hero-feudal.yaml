@@ -1,10 +1,75 @@
-hopper-ppo:
-    env: Hero-v0
+MsPacman:
+    env: MsPacman-v0
     run: FEUDAL
     trial_resources:
         cpu: 1
         gpu: 0
-        extra_cpu: 1
+        extra_cpu: 19
+    repeat: 1
     config:
       ES: True
-      num_workers: 2
+      noise_stdev: 0.1
+      alpha: 0.01
+
+      gamma: 0.99,
+      gamma_internal: 0.95
+      #"sgd_stepsize": np.exp(np.random.uniform(10**(-4.5), 10**(-3.5))),
+      #"entropy_coefficient": np.exp(np.random.uniform(10**(-4), 10**(-3))),
+      #"tradeoff_rewards": np.random.uniform(0, 1),
+      horizon: 2000
+      use_gae: True
+      lambda": 0.97
+      lambda_internal: 0.97
+      g_dim: 256
+      kappa: 1.0
+      k: 16
+      vf_hidden_size: 256
+      c: 10
+      dilatation_rate: 10
+      units_z: 256
+
+
+      num_workers: 30
+      timesteps_per_batch: 2000 * 30
+      sgd_batchsize: 16 * 1024
+      vf_loss_coeff_manager: 1.0
+      vf_loss_coeff_worker: 1.0
+      min_steps_per_task: 200
+      num_sgd_iter: 30
+      observation_filter: "NoFilter"
+
+      devices: ["/cpu:%d" % i for i in range(4)]
+      tf_session_args: {
+        "device_count": {"CPU": 4},
+        "log_device_placement": False,
+        "allow_soft_placement": True,
+        "intra_op_parallelism_threads": 1,
+        "inter_op_parallelism_threads": 2}
+      rollout_batchsize: 1
+      worker_resources: {"num_cpus": None}
+      full_trace_nth_sgd_batch: -1
+      full_trace_data_load: False
+      tf_debug_iteration: -1
+      tf_debug_inf_or_nan: False
+      write_logs: True
+      env_config: {}
+      ,
+    # kappa coefficient from the VMF distribution
+    ",
+    # Dimension of w
+    ",
+    # Vf hidden size
+    ",
+    # Horizon of the manager
+    ",
+    # Dilatation rate
+    ",
+    # WHETEHR THE MODE MANAGER ES IS ACTIVATED OR NOT
+    ",
+    # Standard deviation of the noise for parameters perturbation
+    ",
+    # Hyperparameter for the manager's weights update rule
+    ",
+    # Size of the perceptrons layer before z
+    "
+}

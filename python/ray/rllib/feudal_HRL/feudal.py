@@ -24,8 +24,6 @@ DEFAULT_CONFIG = {
     "gamma": 0.995,
     # Discount factor of the worker
     "gamma_internal" : 0.997,
-    # Tradeoff
-    "tradeoff_rewards" : 0.5,
     # Number of steps after which the rollout gets cut
     "horizon": 2000,
     # If true, use the Generalized Advantage Estimator (GAE)
@@ -38,7 +36,11 @@ DEFAULT_CONFIG = {
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
     # Stepsize of SGD
-    "sgd_stepsize": 5e-5,
+    "sgd_stepsize": np.exp(np.random.uniform(10**(-4.5), 10**(-3.5))),
+    # Entropy coefficient
+    "entropy_coefficient": np.exp(np.random.uniform(10**(-4), 10**(-3))),
+    # Treadeoff rewards
+    "tradeoff_rewards": np.random.uniform(0, 1),
     # TODO(pcm): Expose the choice between gpus and cpus
     # as a command line argument.
     "devices": ["/cpu:%d" % i for i in range(4)],
@@ -57,12 +59,6 @@ DEFAULT_CONFIG = {
     "vf_loss_coeff_manager": 1.0,
     # Coefficient of the value function loss
     "vf_loss_coeff_worker": 1.0,
-    # Coefficient of the entropy regularizer
-    "entropy_coeff": 0.0,
-    # PPO clip parameter
-    "clip_param": 0.2,
-    # Config params to pass to the model
-    "model": {"free_log_std": False},
     # Which observation filter to apply to the observation
     "observation_filter": "NoFilter",
     # If >1, adds frameskip

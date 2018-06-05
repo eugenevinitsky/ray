@@ -84,12 +84,6 @@ class FeudalLoss(object):
             if not(self.ES):
 
                 self.manager_logits = distribution_class_obs(self.g, config["kappa"], observation_space.shape[0])
-                vf_config = config["model"].copy()
-                vf_config["free_log_std"] = False
-                with tf.variable_scope("value_function_manager"):
-                    self.value_function_manager = ModelCatalog.get_model(
-                        registry, observations, 1, vf_config).outputs
-                self.value_function_manager = tf.reshape(self.value_function_manager, [-1])
                 self.diff = diff
                 self.diff = tf.nn.l2_normalize(self.diff, dim=1)
                 self.logp_manager = self.manager_logits.logp(self.diff)
@@ -180,21 +174,15 @@ class FeudalLoss(object):
             self.policy_warmup,
             feed_dict={self.observations: [observation]})
         return s, g, z
-    """
+
+
     def compute_worker(self, z, gsum, observation):
         action, logprobs, vfm, vfw = self.sess.run(
                     self.policy_results,
                     feed_dict={self.observations: [observation], self.carried_z: z, self.carried_gsum: gsum})
 
         return action, {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw, "logprobs": logprobs[0]}
-    """
 
-    def compute_worker(self, z, gsum, observation):
-        action, logprobs, vfm, vfw = self.sess.run(
-            self.policy_results,
-            feed_dict={self.observations: [observation], self.carried_z: z, self.carried_gsum: gsum})
-
-        return action, {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw, "logprobs": logprobs[0]}
 
 
     def loss_manager(self):
