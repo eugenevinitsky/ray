@@ -72,7 +72,6 @@ class LocalSyncParallelOptimizer_Feudal(object):
                     *[tf.split(ph, len(devices)) for ph in input_placeholders])
 
 
-
         self._towers_loss_manager = []
         self._towers_loss_worker = []
         for device, device_placeholders in zip(self.devices, data_splits):
@@ -84,24 +83,29 @@ class LocalSyncParallelOptimizer_Feudal(object):
                 new_tower_loss_worker = self._setup_device(device, device_placeholders)
                 self._towers_loss_worker.append(new_tower_loss_worker)
 
-            if self.ES == False:
-                avg = average_gradients([t.grads for t in self._towers_loss_manager])
-                if grad_norm_clipping:
-                    for i, (grad, var) in enumerate(avg):
-                        if grad is not None:
-                            avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
-                self._train_op_loss_manager = self.optimizer.apply_gradients(avg)
-
-            avg = average_gradients([t.grads for t in self._towers_loss_worker])
-
-            print("GRADIENTS OF WORKER")
-            for t in self._towers_loss_worker:
-                print(t.grads)
+        if self.ES == False:
+            avg = average_gradients([t.grads for t in self._towers_loss_manager])
             if grad_norm_clipping:
                 for i, (grad, var) in enumerate(avg):
                     if grad is not None:
                         avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
-            self._train_op_loss_worker = self.optimizer.apply_gradients(avg)
+            self._train_op_loss_manager = self.optimizer.apply_gradients(avg)
+
+        avg = average_gradients([t.grads for t in self._towers_loss_worker])
+
+        print("GRADIENTS OF WORKER")
+        for t in self._towers_loss_worker:
+            print("this is t")
+            print(t)
+            print("this is t.grads")
+            print(t.grads)
+
+        if grad_norm_clipping:
+            for i, (grad, var) in enumerate(avg):
+                if grad is not None:
+                    avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+
+        self._train_op_loss_worker = self.optimizer.apply_gradients(avg)
 
 
     def load_data(self, sess, inputs, full_trace=False):

@@ -29,7 +29,7 @@ class PartialRollout_Feudal(object):
 
     fields = ["obs", "actions", "rewards", "new_obs", "dones", "features"]#, "s_diff", "gsum"]
 
-    field_specific_feudal = ["s", "g", "z"]
+    field_specific_feudal = ["s", "g", "z_to_feed"]
 
     def __init__(self, extra_fields=None):
         """Initializers internals. Maintains a `last_r` field
@@ -197,7 +197,7 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
                         **pi_info)
             rollout.add_feudal(s=s,
                                g=g,
-                               z=z)
+                               z_to_feed=z)
 
             last_observation = observation
             last_features = features

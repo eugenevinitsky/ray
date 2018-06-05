@@ -180,11 +180,19 @@ class FeudalLoss(object):
             self.policy_warmup,
             feed_dict={self.observations: [observation]})
         return s, g, z
-
+    """
     def compute_worker(self, z, gsum, observation):
         action, logprobs, vfm, vfw = self.sess.run(
                     self.policy_results,
                     feed_dict={self.observations: [observation], self.carried_z: z, self.carried_gsum: gsum})
+
+        return action, {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw, "logprobs": logprobs[0]}
+    """
+
+    def compute_worker(self, z, gsum, observation):
+        action, logprobs, vfm, vfw = self.sess.run(
+            self.policy_results,
+            feed_dict={self.observations: [observation], self.carried_z: z, self.carried_gsum: gsum})
 
         return action, {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw, "logprobs": logprobs[0]}
 
