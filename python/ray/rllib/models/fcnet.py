@@ -29,7 +29,7 @@ class FullyConnectedNetwork(Model):
                 last_layer = slim.fully_connected(
                     last_layer, size,
                     weights_initializer=normc_initializer(1.0),
-                    activation_fn=activation,
+                    activation_fn=tf.nn.relu,
                     scope=label)
                 i += 1
             label = "fc_out"
