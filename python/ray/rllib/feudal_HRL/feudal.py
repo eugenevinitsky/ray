@@ -55,7 +55,7 @@ DEFAULT_CONFIG = {
     # Batch size for policy evaluations for rollouts
     "rollout_batchsize": 1,
     # Total SGD batch size across all devices for SGD
-    "sgd_batchsize": 128,
+    "sgd_batchsize": 1024,
     # Coefficient of the value function loss
     "vf_loss_coeff_manager": 1.0,
     # Coefficient of the value function loss
@@ -237,7 +237,7 @@ class FeudalAgent(Agent):
             sgd_start = time.time()
             batch_index = 0
             num_batches = (
-                int(tuples_per_device) // int(model.per_device_batch_size))
+                int(tuples_per_device) // config["sgd_batchsize"])
             print("num_batches")
             print(num_batches)
             if self.ES:
