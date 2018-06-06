@@ -95,29 +95,6 @@ class ProximalPolicyLoss(object):
         self.mean_kl = tf.reduce_mean(self.kl)
         self.entropy = self.curr_dist.entropy()
 
-
-        """TRPO"""
-        
-        print("WE USE TRPO")
-        self.mean_entropy = tf.reduce_mean(self.entropy)
-        self.vf_loss1 = tf.square(self.value_function - value_targets)
-        vf_clipped = prev_vf_preds + tf.clip_by_value(
-            self.value_function - prev_vf_preds,
-            -config["clip_param"], config["clip_param"])
-        self.vf_loss2 = tf.square(vf_clipped - value_targets)
-        self.vf_loss = tf.minimum(self.vf_loss1, self.vf_loss2)
-        self.mean_vf_loss = tf.reduce_mean(self.vf_loss)
-
-        self.ratio = tf.exp(curr_logp - prev_logp)
-        self.surr = self.ratio * advantages
-
-        self.mean_policy_loss = tf.reduce_mean(- self.surr + kl_coeff * self.kl)
-        self.loss = tf.reduce_mean(
-            -self.surr + kl_coeff * self.kl +
-            config["vf_loss_coeff"] * self.vf_loss)
-            
-        """
-
         print("WE USE PPO")
 
         # Make loss functions.
@@ -171,11 +148,6 @@ class ProximalPolicyLoss(object):
         else:
             self.mean_vf_loss = tf.constant(0.0)
             self.loss = tf.reduce_mean(0)
-                    
-        """
-
-
-
 
         self.sess = sess
 
