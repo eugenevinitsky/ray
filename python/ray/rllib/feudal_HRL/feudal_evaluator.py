@@ -15,7 +15,7 @@ from ray.rllib.optimizers import PolicyEvaluator, SampleBatch
 from ray.rllib.optimizers.multi_gpu_impl import LocalSyncParallelOptimizer_Feudal
 from ray.rllib.models import ModelCatalog
 from ray.rllib.utils.sampler import SyncSampler_Feudal
-from ray.rllib.utils.filter import get_filter, MeanStdFilter
+from ray.rllib.utils.filter import NoFilter, get_filter, MeanStdFilter
 from ray.rllib.utils.process_rollout import process_rollout_Feudal
 
 
@@ -64,6 +64,8 @@ class FeudalEvaluator(PolicyEvaluator):
         action_dim = action_space.n
         # The input observations.
 
+        self.g_to_feed = tf.placeholder(
+            tf.float32, shape=(None, self.config["g_dim"]))
         self.gsum = tf.placeholder(
             tf.float32, shape=(None, self.config["g_dim"]))
         self.z_to_feed = tf.placeholder(
@@ -93,16 +95,16 @@ class FeudalEvaluator(PolicyEvaluator):
             assert self.batch_size % len(devices) == 0
             self.per_device_batch_size = int(self.batch_size / len(devices))
 
-        def build_loss(gsum, z_to_feed, obs, value_targets_worker, advantages_worker,
+        def build_loss(g, gsum, z_to_feed, obs, value_targets_worker, advantages_worker,
                            acts, diff, value_targets_manager, advantages_manager):
-                return FeudalLoss(gsum, z_to_feed,
+                return FeudalLoss(g, gsum, z_to_feed,
                                   self.env.observation_space, self.env.action_space,
                                   obs, value_targets_worker, advantages_worker, acts,
                                   self.distribution_class_obs, self.config,
                                   self.sess, self.registry, self.ES,
                                   diff, value_targets_manager, advantages_manager)
 
-        liste_inputs = [self.gsum, self.z_to_feed, self.observations, self.value_targets_worker,
+        liste_inputs = [self.g_to_feed, self.gsum, self.z_to_feed, self.observations, self.value_targets_worker,
              self.advantages_worker, self.actions, self.diff, self.value_targets_manager, self.advantages_manager]
 
         self.par_opt = LocalSyncParallelOptimizer_Feudal(
@@ -160,7 +162,8 @@ class FeudalEvaluator(PolicyEvaluator):
 
         self.obs_filter = get_filter(
             config["observation_filter"], self.env.observation_space.shape)
-        self.rew_filter = MeanStdFilter((), clip=5.0)
+        #self.rew_filter = MeanStdFilter((), clip=5.0)
+        self.rew_filter = NoFilter()
         self.filters = {"obs_filter": self.obs_filter,
                         "rew_filter": self.rew_filter}
         self.sampler = SyncSampler_Feudal(
@@ -171,7 +174,7 @@ class FeudalEvaluator(PolicyEvaluator):
 
     def load_data(self, trajectories, full_trace):
 
-        liste_inputs_trajectories = [trajectories["gsum"], trajectories["z_to_feed"], trajectories["obs"], trajectories["value_targets_worker"],
+        liste_inputs_trajectories = [trajectories["g"], trajectories["gsum"], trajectories["z_to_feed"], trajectories["obs"], trajectories["value_targets_worker"],
                                     trajectories["advantages_worker"], trajectories["actions"], trajectories["diff"],
                                     trajectories["value_targets_manager"], trajectories["advantages_manager"]]
 

@@ -93,7 +93,7 @@ DEFAULT_CONFIG = {
     # Dimension of w
     "k" : 16,
     # Vf hidden size
-    "vf_hidden_size" : 256,
+    "vf_hidden_size" : [256, 64],
     # Horizon of the manager
     "c" : 10,
     # Dilatation rate
@@ -105,7 +105,11 @@ DEFAULT_CONFIG = {
     # Hyperparameter for the manager's weights update rule
     "alpha": 1.0,
     # Size of the perceptrons layer before z
-    "units_z": 256
+    "units_z": 256,
+    # Whether we use LSTMs or classical NN
+    "LSTM_OR_NOT": False,
+    # Whether Value functions approximator are built with other NN than policy
+    "separate_VF_approximator": True
 }
 
 

@@ -103,6 +103,7 @@ class LocalSyncParallelOptimizer_Feudal(object):
         """
 
         feed_dict = {}
+
         assert len(self.input_placeholders) == len(inputs)
         for ph, arr in zip(self.input_placeholders, inputs):
             truncated_arr = make_divisible_by(arr, self.batch_size)
