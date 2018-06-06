@@ -169,7 +169,8 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
             else:
                 g_s = np.append(g_s, [g], axis=0)
                 g_sum = g_s[-(c+1):].sum(axis=0)
-            action, pi_info = policy.compute_worker(z, g_sum, last_observation, *last_features)
+
+            action, pi_info = policy.compute_worker(g, z, g_sum, last_observation, *last_features)
             action_to_take = action.argmax()
 
             if policy.is_recurrent:

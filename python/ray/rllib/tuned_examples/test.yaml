@@ -5,11 +5,13 @@ MsPacman:
     trial_resources:
         cpu: 1
         gpu: 0
-        extra_cpu: 49
+        extra_cpu: 1
     upload_dir: "s3://bucketlearningtraffic/Feudal"
     checkpoint_freq: 1
     repeat: 1
     config:
+      separate_VF_approximator: True
+      LSTM_OR_NOT: True
       ES: False
       noise_stdev: 0.1
       alpha: 0.01
@@ -25,12 +27,12 @@ MsPacman:
       g_dim: 256
       kappa: 1.0
       k: 16
-      vf_hidden_size: 256
+      vf_hidden_size: [64, 64]
       c: 10
       dilatation_rate: 10
       units_z: 256
-      num_workers: 50
-      timesteps_per_batch: 100000
+      num_workers: 2
+      timesteps_per_batch: 4000
       sgd_batchsize: 1024
       vf_loss_coeff_manager: 1.0
       vf_loss_coeff_worker: 1.0

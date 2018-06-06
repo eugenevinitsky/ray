@@ -125,7 +125,6 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
         gsum.append(tensor)
 
     traj["gsum"] = np.array(gsum).sum(axis=0)
-    del traj["g"]
 
 
     assert all(val.shape[0] == trajsize for val in traj.values()), \

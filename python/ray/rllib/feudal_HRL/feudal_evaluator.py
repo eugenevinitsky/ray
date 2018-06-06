@@ -62,8 +62,10 @@ class FeudalEvaluator(PolicyEvaluator):
         obs_space = self.env.observation_space
         action_space = self.env.action_space
         action_dim = action_space.n
-        # The input observations.
+        # The input observations."
 
+        self.goal = tf.placeholder(
+            tf.float32, shape=(None, self.config["g_dim"]))
         self.gsum = tf.placeholder(
             tf.float32, shape=(None, self.config["g_dim"]))
         self.z_to_feed = tf.placeholder(
@@ -93,16 +95,16 @@ class FeudalEvaluator(PolicyEvaluator):
             assert self.batch_size % len(devices) == 0
             self.per_device_batch_size = int(self.batch_size / len(devices))
 
-        def build_loss(gsum, z_to_feed, obs, value_targets_worker, advantages_worker,
+        def build_loss(goal, gsum, z_to_feed, obs, value_targets_worker, advantages_worker,
                            acts, diff, value_targets_manager, advantages_manager):
-                return FeudalLoss(gsum, z_to_feed,
+                return FeudalLoss(goal, gsum, z_to_feed,
                                   self.env.observation_space, self.env.action_space,
                                   obs, value_targets_worker, advantages_worker, acts,
                                   self.distribution_class_obs, self.config,
                                   self.sess, self.registry, self.ES,
                                   diff, value_targets_manager, advantages_manager)
 
-        liste_inputs = [self.gsum, self.z_to_feed, self.observations, self.value_targets_worker,
+        liste_inputs = [self.goal, self.gsum, self.z_to_feed, self.observations, self.value_targets_worker,
              self.advantages_worker, self.actions, self.diff, self.value_targets_manager, self.advantages_manager]
 
         self.par_opt = LocalSyncParallelOptimizer_Feudal(
@@ -171,7 +173,7 @@ class FeudalEvaluator(PolicyEvaluator):
 
     def load_data(self, trajectories, full_trace):
 
-        liste_inputs_trajectories = [trajectories["gsum"], trajectories["z_to_feed"], trajectories["obs"], trajectories["value_targets_worker"],
+        liste_inputs_trajectories = [trajectories["g"], trajectories["gsum"], trajectories["z_to_feed"], trajectories["obs"], trajectories["value_targets_worker"],
                                     trajectories["advantages_worker"], trajectories["actions"], trajectories["diff"],
                                     trajectories["value_targets_manager"], trajectories["advantages_manager"]]
 
