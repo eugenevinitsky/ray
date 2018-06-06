@@ -187,6 +187,10 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
             if isinstance(action, list):
                 action = np.concatenate(action, axis=0).flatten()
 
+            print("last_observation")
+            print(last_observation)
+            print("action")
+            print(action)
             # Collect the experience.
             rollout.add(obs=last_observation,
                         actions=action,
@@ -385,6 +389,10 @@ def _env_runner(env, policy, num_local_steps, horizon, obs_filter, ADB):
             if isinstance(action, list):
                 action = np.concatenate(action, axis=0).flatten()
 
+            print("last_observation")
+            print(last_observation)
+            print("action")
+            print(action)
             # Collect the experience.
             rollout.add(obs=last_observation,
                         actions=action,

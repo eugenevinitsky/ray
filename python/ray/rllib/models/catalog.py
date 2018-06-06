@@ -105,6 +105,7 @@ class ModelCatalog(object):
 
         # TODO: implement other observation spaces
 
+
         if isinstance(obs_space, gym.spaces.Box):
             if dist_type is None:
                 return von_Mises_Fisher, obs_space.shape[0]

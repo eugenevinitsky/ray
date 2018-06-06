@@ -73,7 +73,7 @@ class FeudalLoss(object):
             x = tf.expand_dims(self.s, [0])
 
             with tf.variable_scope("LSTM"):
-                """
+
                 self.manager_lstm = SingleStepLSTM(size=config["g_dim"], dilatation_rate=config["dilatation_rate"])
                 g_hat = self.manager_lstm.compute_step(x, step_size=tf.shape(self.observations)[:1])
                 """
@@ -82,6 +82,7 @@ class FeudalLoss(object):
                 g_hat, _ = tf.nn.dynamic_rnn(self.manager_lstm, x,
                                                           initial_state=initial_state,
                                                           dtype=tf.float32)
+                """
                 g_hat = tf.squeeze(g_hat, axis=0)
 
 
@@ -92,16 +93,16 @@ class FeudalLoss(object):
             self.manager_output = self.g
 
 
-            hidden_manager = tf.layers.dense(inputs=g_hat, \
+            hidden_manager = tf.layers.dense(inputs=self.g , \
                                                  units=config["vf_hidden_size"], \
                                                  activation=tf.nn.elu)
 
             weights_VF_manager = tf.get_variable("weights_VF_manager", (config["vf_hidden_size"], 1))
             self.value_function_manager = tf.matmul(hidden_manager, weights_VF_manager)
 
-            if not(self.ES):
+            if not self.ES:
 
-                self.manager_logits = distribution_class_obs(self.g, config["kappa"], observation_space.shape[0])
+                self.manager_logits = distribution_class_obs(self.g, config["kappa"], config["g_dim"])
                 self.diff = diff
                 self.diff = tf.nn.l2_normalize(self.diff, dim=1)
                 self.logp_manager = self.manager_logits.logp(self.diff)
@@ -121,7 +122,6 @@ class FeudalLoss(object):
 
             with tf.variable_scope("LSTM"):
 
-                #self.new_z = tf.stop_gradient(self.z)
                 dimension_lstm_worker = self.action_dim * config["k"]
                 lstm_cell_worker = tf.nn.rnn_cell.BasicLSTMCell(dimension_lstm_worker)
                 initial_state = lstm_cell_worker.zero_state(1, dtype=tf.float32)
@@ -160,7 +160,7 @@ class FeudalLoss(object):
             self.sampler = categorical_sample(
                 tf.reshape(self.curr_logits, [-1, self.action_dim]), self.action_dim)[0, :]
 
-            self.entropy_worker =-tf.reduce_sum(self.pi * self.log_pi)
+            self.entropy_worker = -tf.reduce_sum(self.pi * self.log_pi)
             self.mean_entropy_worker = tf.reduce_mean(self.entropy_worker)
 
             self.vf_loss_worker = tf.square(self.value_function_worker * self.actions - value_targets_worker)

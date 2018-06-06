@@ -1,0 +1,5 @@
+MsPacman:
+    env: MsPacman-v0
+    run: FEUDAL
+    stop: {"training_iteration": 250}
+
