@@ -41,7 +41,7 @@ class ProximalPolicyLoss(object):
                 last_layer = slim.fully_connected(
                     last_layer, size,
                     weights_initializer=normc_initializer(1.0),
-                    activation_fn=tf.nn.relu,
+                    activation_fn=tf.nn.tanh,
                     scope=label)
                 i += 1
 
@@ -51,10 +51,6 @@ class ProximalPolicyLoss(object):
                 weights_initializer=normc_initializer(1.0),
                 activation_fn=None, scope=label)
 
-            """
-            self.curr_logits = ModelCatalog.get_model(
-                registry, observations, logit_dim, config["model"]).outputs
-            """
             self.curr_dist = distribution_class(self.curr_logits)
 
         self.sampler = self.curr_dist.sample()
@@ -90,21 +86,6 @@ class ProximalPolicyLoss(object):
                 else:
                     self.value_function = tf.reshape(out_, [-1])
 
-            """
-            vf_config = config["model"].copy()
-            vf_config["free_log_std"] = False
-            if self.ADB:
-                with tf.variable_scope("Q_function"):
-                    self.Q_function = ModelCatalog.get_model(
-                        registry, self.input_value_function, 1, vf_config).outputs
-                self.Q_function = tf.reshape(self.Q_function, [-1])
-            else:
-                with tf.variable_scope("value_function"):
-                    self.value_function = ModelCatalog.get_model(
-                        registry, self.input_value_function, 1, vf_config).outputs
-                self.value_function = tf.reshape(self.value_function, [-1])
-            """
-
         curr_r_matrix = self.curr_dist.r_matrix(actions)
         prev_r_matrix = self.prev_dist.r_matrix(actions)
 
@@ -114,6 +95,27 @@ class ProximalPolicyLoss(object):
         self.mean_kl = tf.reduce_mean(self.kl)
         self.entropy = self.curr_dist.entropy()
 
+
+        """TRPO"""
+        self.mean_entropy = tf.reduce_mean(self.entropy)
+        self.vf_loss1 = tf.square(self.value_function - value_targets)
+        vf_clipped = prev_vf_preds + tf.clip_by_value(
+            self.value_function - prev_vf_preds,
+            -config["clip_param"], config["clip_param"])
+        self.vf_loss2 = tf.square(vf_clipped - value_targets)
+        self.vf_loss = tf.minimum(self.vf_loss1, self.vf_loss2)
+        self.mean_vf_loss = tf.reduce_mean(self.vf_loss)
+
+        self.ratio = tf.exp(curr_logp - prev_logp)
+        self.surr = self.ratio * advantages
+
+        self.mean_policy_loss = tf.reduce_mean(- self.surr + kl_coeff * self.kl)
+        self.loss = tf.reduce_mean(
+            -self.surr + kl_coeff * self.kl +
+            config["vf_loss_coeff"] * self.vf_loss)
+
+
+        """
         # Make loss functions.
         if ADB:
             self.ratio = curr_r_matrix / prev_r_matrix
@@ -161,6 +163,8 @@ class ProximalPolicyLoss(object):
                     -self.surr + kl_coeff * self.kl +
                     config["vf_loss_coeff"] * self.vf_loss -
                     config["entropy_coeff"] * self.entropy)
+                    
+        """
 
 
         else:
