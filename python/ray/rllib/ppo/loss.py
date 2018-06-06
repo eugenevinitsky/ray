@@ -48,7 +48,7 @@ class ProximalPolicyLoss(object):
             label = "policy_net_fc_out"
             self.curr_logits = slim.fully_connected(
                 last_layer, logit_dim,
-                weights_initializer=normc_initializer(0.01),
+                weights_initializer=normc_initializer(1.0),
                 activation_fn=None, scope=label)
 
             """
@@ -82,7 +82,7 @@ class ProximalPolicyLoss(object):
                 label = "value_function_net_fc_out"
                 out_ = slim.fully_connected(
                         last_layer, 1,
-                        weights_initializer=normc_initializer(0.01),
+                        weights_initializer=normc_initializer(1.0),
                         activation_fn=None, scope=label)
                 if self.ADB:
                     self.Q_function = tf.reshape(out_, [-1])
