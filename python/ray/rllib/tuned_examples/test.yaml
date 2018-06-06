@@ -1,5 +1,5 @@
 MsPacman:
-    env: MsPacman-v0
+    env: Alien-v0
     run: FEUDAL
     stop: {"training_iteration": 250}
     trial_resources:
