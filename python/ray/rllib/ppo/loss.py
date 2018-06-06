@@ -41,7 +41,7 @@ class ProximalPolicyLoss(object):
                 last_layer = slim.fully_connected(
                     last_layer, size,
                     weights_initializer=normc_initializer(1.0),
-                    activation_fn=tf.nn.relu,
+                    activation_fn=tf.nn.tanh,
                     scope=label)
                 i += 1
 
@@ -96,7 +96,7 @@ class ProximalPolicyLoss(object):
         self.entropy = self.curr_dist.entropy()
 
 
-        """TRPO
+        """TRPO"""
         
         print("WE USE TRPO")
         self.mean_entropy = tf.reduce_mean(self.entropy)
@@ -172,7 +172,7 @@ class ProximalPolicyLoss(object):
             self.mean_vf_loss = tf.constant(0.0)
             self.loss = tf.reduce_mean(0)
                     
-
+        """
 
 
 
