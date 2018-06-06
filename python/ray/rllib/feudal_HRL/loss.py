@@ -100,7 +100,7 @@ class FeudalLoss(object):
 
 
 
-            g_hat = tf.reshape(g_hat, shape=(-1, config["g_dim"]))
+                g_hat = tf.reshape(g_hat, shape=(-1, config["g_dim"]))
             self.g = tf.nn.l2_normalize(g_hat, dim=1)
 
             self.manager_output = self.g
