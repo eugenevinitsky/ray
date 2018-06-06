@@ -74,16 +74,29 @@ class FeudalLoss(object):
 
             with tf.variable_scope("LSTM"):
 
+                """OPTION 1: dilated LSTM"""
+
                 self.manager_lstm = SingleStepLSTM(size=config["g_dim"], dilatation_rate=config["dilatation_rate"])
                 g_hat = self.manager_lstm.compute_step(x, step_size=tf.shape(self.observations)[:1])
-                """
+
+
+                """ OPTION 2: classic LSTM
                 self.manager_lstm = tf.nn.rnn_cell.BasicLSTMCell(config["g_dim"])
                 initial_state = self.manager_lstm.zero_state(1, dtype=tf.float32)
                 g_hat, _ = tf.nn.dynamic_rnn(self.manager_lstm, x,
                                                           initial_state=initial_state,
                                                           dtype=tf.float32)
-                """
                 g_hat = tf.squeeze(g_hat, axis=0)
+                """
+
+                """OPTION 3: Simple Neural Network
+
+                g_hat = tf.layers.dense(inputs=self.s, \
+                                units=config["g_dim"], \
+                                activation=tf.nn.elu)
+
+                """
+
 
 
 
@@ -122,6 +135,7 @@ class FeudalLoss(object):
 
             with tf.variable_scope("LSTM"):
 
+                """OPTION 1: LSTM"""
                 dimension_lstm_worker = self.action_dim * config["k"]
                 lstm_cell_worker = tf.nn.rnn_cell.BasicLSTMCell(dimension_lstm_worker)
                 initial_state = lstm_cell_worker.zero_state(1, dtype=tf.float32)
@@ -131,6 +145,14 @@ class FeudalLoss(object):
 
 
                 outputs_worker = tf.squeeze(outputs_worker, axis=0)
+
+
+                """OPTION 2: classic NN
+
+                outputs_worker = tf.layers.dense(inputs=self.carried_z, \
+                                        units=self.action_dim * config["k"], \
+                                        activation=tf.nn.elu)
+                """
 
             hidden_VF_worker = tf.layers.dense(inputs=outputs_worker, \
                                      units=config["vf_hidden_size"], \

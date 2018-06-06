@@ -249,18 +249,18 @@ class FeudalAgent(Agent):
             # Prepare to drop into the debugger
             if self.iteration == config["tf_debug_iteration"]:
                 model.sess = tf_debug.LocalCLIDebugWrapperSession(model.sess)
+
             while batch_index < num_batches:
                 full_trace = (
                     i == 0 and self.iteration == 0 and
                     batch_index == config["full_trace_nth_sgd_batch"])
+
                 if self.ES == False:
-                    print("READY TO RUN BATCH!!!")
                     batch_loss_manager, batch_vf_loss_manager, batch_loss_policy_manager, batch_loss_worker, batch_policy_loss_worker, batch_vf_loss_worker, \
                     batch_entropy_worker = model.run_sgd_minibatch(
                             permutation[batch_index] * model.per_device_batch_size,
                             full_trace,
                             self.file_writer)
-                    print("BATCH ARE OVER!!!")
                     loss_manager.append(batch_loss_manager)
                     vf_loss_manager.append(batch_vf_loss_manager)
                     policy_loss_manager.append(batch_loss_policy_manager)
@@ -275,6 +275,7 @@ class FeudalAgent(Agent):
                 vf_loss_worker.append(batch_vf_loss_worker)
                 entropy_worker.append(batch_entropy_worker)
                 batch_index += 1
+
             if self.ES == False:
                 loss_manager = np.mean(loss_manager)
                 vf_loss_manager = np.mean(vf_loss_manager)
@@ -284,6 +285,7 @@ class FeudalAgent(Agent):
             vf_loss_worker= np.mean(vf_loss_worker)
             entropy_worker = np.mean(entropy_worker)
             sgd_end = time.time()
+            print("SGD TOOK " + str(sgd_end - sgd_start))
             if self.ES:
                 print(
                     "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
