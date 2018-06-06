@@ -96,7 +96,7 @@ class ProximalPolicyLoss(object):
         self.entropy = self.curr_dist.entropy()
 
 
-        """TRPO"""
+        """TRPO
         self.mean_entropy = tf.reduce_mean(self.entropy)
         self.vf_loss1 = tf.square(self.value_function - value_targets)
         vf_clipped = prev_vf_preds + tf.clip_by_value(
@@ -113,9 +113,11 @@ class ProximalPolicyLoss(object):
         self.loss = tf.reduce_mean(
             -self.surr + kl_coeff * self.kl +
             config["vf_loss_coeff"] * self.vf_loss)
-
-
+            
         """
+
+
+
         # Make loss functions.
         if ADB:
             self.ratio = curr_r_matrix / prev_r_matrix
@@ -168,7 +170,7 @@ class ProximalPolicyLoss(object):
             self.mean_vf_loss = tf.constant(0.0)
             self.loss = tf.reduce_mean(0)
                     
-        """
+
 
 
 
