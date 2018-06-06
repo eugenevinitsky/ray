@@ -67,10 +67,11 @@ class ProximalPolicyLoss(object):
             else:
                 self.input_value_function = self.observations
 
+            hiddens_vf = config["hiddens_vf"]
             with tf.name_scope("value_function_net"):
                 i = 1
                 last_layer = self.input_value_function
-                for size in hiddens_policy:
+                for size in hiddens_vf:
                     label = "value_function_net_fc{}".format(i)
                     last_layer = slim.fully_connected(
                         last_layer, size,
@@ -135,7 +136,7 @@ class ProximalPolicyLoss(object):
         else:
             self.surr = tf.minimum(self.surr1, self.surr2)
 
-        self.mean_policy_loss = tf.reduce_mean(-self.surr)
+        self.mean_policy_loss = - tf.reduce_mean(self.surr)
 
         if config["use_gae"]:
             # We use a huber loss here to be more robust against outliers,

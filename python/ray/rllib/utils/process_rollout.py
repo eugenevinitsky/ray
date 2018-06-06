@@ -165,7 +165,8 @@ def process_rollout(rollout, reward_filter, gamma, ADB, lambda_=1.0, use_gae=Tru
             traj["advantages"] = discount(delta_t, gamma * lambda_)
 
 
-        traj["value_targets"] = returns
+        #traj["value_targets"] = returns
+        traj["value_targets"] = traj["advantages"] + traj["vf_preds"]
 
     else:
         rewards_plus_v = np.stack(

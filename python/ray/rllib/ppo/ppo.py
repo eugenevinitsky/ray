@@ -87,7 +87,8 @@ DEFAULT_CONFIG = {
     "env_config": {},
     # Whether we use the ADB version of PPO or NOT
     "ADB": False,
-    "hiddens_policy": [100, 50, 25]
+    "hiddens_policy": [100, 50, 25],
+    "hiddens_vf": [100, 50, 25]
 }
 
 
