@@ -164,12 +164,14 @@ class ProximalPolicyLoss(object):
                     config["vf_loss_coeff"] * self.vf_loss -
                     config["entropy_coeff"] * self.entropy)
                     
-        """
-
-
         else:
             self.mean_vf_loss = tf.constant(0.0)
             self.loss = tf.reduce_mean(0)
+                    
+        """
+
+
+
 
         self.sess = sess
 
