@@ -148,9 +148,6 @@ class FeudalAgent(Agent):
         agents = self.remote_agents
         model = self.local_evaluator
         config = self.config
-        print(config["min_steps_per_task"])
-        print(self.num_workers)
-        print(config["timesteps_per_batch"])
         if (self.num_workers * config["min_steps_per_task"] >
                 config["timesteps_per_batch"]):
             print(
@@ -166,8 +163,6 @@ class FeudalAgent(Agent):
 
         if self.ES:
             weights_manager_outputs = model.get_weights_manager_loss()
-            print("weights_manager_outputs")
-            print(weights_manager_outputs)
             count_1 = 0
             count_2 = 0
             for a in agents:
@@ -200,8 +195,6 @@ class FeudalAgent(Agent):
 
 
         weights_worker_loss = ray.put(model.get_weights_worker_loss())
-        print("weights_worker_loss")
-        print(model.get_weights_worker_loss())
         [a.set_weights_worker_loss.remote(weights_worker_loss) for a in agents]
 
         samples = collect_samples(agents, config, self.local_evaluator)
@@ -231,6 +224,10 @@ class FeudalAgent(Agent):
         shuffle_end = time.time()
         tuples_per_device = model.load_data(
             samples, self.iteration == 0 and config["full_trace_data_load"])
+        print("tuples_per_device")
+        print(tuples_per_device)
+        print("model.per_device_batch_size")
+        print(model.per_device_batch_size)
         load_end = time.time()
         rollouts_time = rollouts_end - iter_start
         shuffle_time = shuffle_end - rollouts_end
@@ -241,6 +238,8 @@ class FeudalAgent(Agent):
             batch_index = 0
             num_batches = (
                 int(tuples_per_device) // int(model.per_device_batch_size))
+            print("num_batches")
+            print(num_batches)
             if self.ES:
                 loss_worker, policy_loss_worker, vf_loss_worker, entropy_worker = [], [], [], []
             else:
