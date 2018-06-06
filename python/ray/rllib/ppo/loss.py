@@ -97,6 +97,8 @@ class ProximalPolicyLoss(object):
 
 
         """TRPO
+        
+        print("WE USE TRPO")
         self.mean_entropy = tf.reduce_mean(self.entropy)
         self.vf_loss1 = tf.square(self.value_function - value_targets)
         vf_clipped = prev_vf_preds + tf.clip_by_value(
@@ -116,7 +118,7 @@ class ProximalPolicyLoss(object):
             
         """
 
-
+        print("WE USE PPO")
 
         # Make loss functions.
         if ADB:
