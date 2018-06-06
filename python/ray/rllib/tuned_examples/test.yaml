@@ -17,9 +17,9 @@ MsPacman:
       alpha: 0.01
       gamma: 0.99
       gamma_internal: 0.95
-      #"sgd_stepsize": np.exp(np.random.uniform(10**(-4.5), 10**(-3.5))),
-      #"entropy_coefficient": np.exp(np.random.uniform(10**(-4), 10**(-3))),
-      #"tradeoff_rewards": np.random.uniform(0, 1),
+      sgd_stepsize:
+      entropy_coeff: 0
+      tradeoff_rewards: 0.5
       horizon: 2000
       use_gae: True
       lambda: 0.97
