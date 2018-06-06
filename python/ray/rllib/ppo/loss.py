@@ -27,10 +27,12 @@ class ProximalPolicyLoss(object):
         # Saved so that we can compute actions given different observations
         self.observations = observations
 
+
         self.actions = actions
         action_dim = action_space.shape[0]
 
-        hiddens_policy = [256, 256]
+        hiddens_policy = config["hiddens_policy"]
+
         with tf.name_scope("policy_net"):
             i = 1
             last_layer = self.observations
@@ -73,7 +75,7 @@ class ProximalPolicyLoss(object):
                     last_layer = slim.fully_connected(
                         last_layer, size,
                         weights_initializer=normc_initializer(1.0),
-                        activation_fn=tf.nn.relu,
+                        activation_fn=tf.nn.tanh,
                         scope=label)
                     i += 1
 
@@ -86,6 +88,7 @@ class ProximalPolicyLoss(object):
                     self.Q_function = tf.reshape(out_, [-1])
                 else:
                     self.value_function = tf.reshape(out_, [-1])
+
             """
             vf_config = config["model"].copy()
             vf_config["free_log_std"] = False

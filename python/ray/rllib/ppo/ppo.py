@@ -86,7 +86,8 @@ DEFAULT_CONFIG = {
     # Arguments to pass to the env creator
     "env_config": {},
     # Whether we use the ADB version of PPO or NOT
-    "ADB": False
+    "ADB": False,
+    "hiddens_policy": [100, 50, 25]
 }
 
 

@@ -161,7 +161,6 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ADB
         terminal_end = False
         if ES:
             rollout = PartialRollout_Feudal(extra_fields=policy.other_output_ES)
-            print("ARE WE FUCKING HERE???")
 
         else:
             rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
