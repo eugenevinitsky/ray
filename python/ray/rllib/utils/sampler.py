@@ -159,7 +159,8 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
         terminal_end = False
         rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
         for step in range(num_local_steps):
-            s, g, z = policy.compute_manager(last_observation, *last_features)
+            z, vfm = policy.compute_manager_critic(last_observation, *last_features)
+            s, g = policy.compute_manager(last_observation, z)
             if step == 0:
                 g_s = np.array([g])
                 g_sum = g
@@ -170,12 +171,10 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
                 g_s = np.append(g_s, [g], axis=0)
                 g_sum = g_s[-(c+1):].sum(axis=0)
 
-            action, pi_info = policy.compute_worker(g, z, g_sum, last_observation, *last_features)
+            action, vfw, logprob = policy.compute_worker(g, z, g_sum)
             action_to_take = action.argmax()
 
-            if policy.is_recurrent:
-                features = pi_info["features"]
-                del pi_info["features"]
+
             observation, reward, terminal, info = env.step(action_to_take)
             observation = obs_filter(observation)
 
@@ -195,7 +194,9 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
                         dones=terminal,
                         features=last_features,
                         new_obs=observation,
-                        **pi_info)
+                        vf_preds_manager=vfm,
+                        vf_preds_worker=vfw,
+                        logprobs=logprob)
             rollout.add_feudal(s=s,
                                g=g,
                                z_to_feed=z)

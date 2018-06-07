@@ -73,7 +73,7 @@ class FeudalEvaluator(PolicyEvaluator):
         self.observations = tf.placeholder(
             tf.float32, shape=(None,) + obs_space.shape)
         self.value_targets_worker = tf.placeholder(tf.float32, shape=(None,))
-        self.advantages_worker = tf.placeholder(tf.float32, shape=(None, action_dim))
+        self.advantages_worker = tf.placeholder(tf.float32, shape=(None, ))
         self.actions = tf.placeholder(tf.float32, shape=(None, action_dim))
         self.diff = tf.placeholder(
             tf.float32, shape=(None, self.config["g_dim"]))
@@ -237,7 +237,6 @@ class FeudalEvaluator(PolicyEvaluator):
             rollout = self.sampler.get_data()
             samples = process_rollout_Feudal(self.config["c"], self.config["tradeoff_rewards"],
                                                  rollout, self.rew_filter, self.config["gamma"], self.config["gamma_internal"],\
-                                                 self.ES,
                                                  self.config["lambda"],
                                                 use_gae=self.config["use_gae"])
 

@@ -368,6 +368,13 @@ class FeudalAgent(Agent):
             for i in range(self.num_workers):
                 noise = noise_table[i]
                 for key, variable in weights_manager_outputs.items():
+                    print("key")
+                    print(key)
+                    print("current value")
+                    print(weights_manager_outputs[key])
+                    print("modification")
+                    print(self.config["alpha"] * (1 / denominator) * noise[key] * \
+                                                    episode_rewards_agents[i])
                     weights_manager_outputs[key] += self.config["alpha"] * (1 / denominator) * noise[key] * \
                                                     episode_rewards_agents[i]
 
