@@ -9,7 +9,7 @@ from ray.rllib.models.singlestepLSTM import SingleStepLSTM
 import numpy as np
 from scipy.special import iv
 
-
+SEED= 89789775
 
 class FeudalLoss(object):
 
@@ -67,7 +67,6 @@ class FeudalLoss(object):
 
             if config["LSTM_OR_NOT"]:
 
-                print("THIS IS LSTM ")
                 self.manager_lstm = SingleStepLSTM(size=config["g_dim"], dilatation_rate=config["dilatation_rate"])
                 g_hat = self.manager_lstm.compute_step(x, step_size=tf.shape(self.observations)[:1])
 
@@ -78,6 +77,10 @@ class FeudalLoss(object):
 
 
             g_hat = tf.reshape(g_hat, shape=(-1, config["g_dim"]))
+
+            if np.random.rand() < config["epsilon"]:
+                g_hat = tf.random_normal(shape=(-1, config["g_dim"]), mean=0.0, stddev=1.0)
+
             self.g = tf.nn.l2_normalize(g_hat, dim=1)
 
 
@@ -89,7 +92,7 @@ class FeudalLoss(object):
 
                 weights_VF_manager = tf.get_variable("weights_VF_manager", (config["vf_hidden_size"][-1], 1))
                 self.value_function_manager = tf.matmul(hidden_manager, weights_VF_manager)
-                
+
 
             else:
                 conv1_vf_appro = tf.layers.conv2d(inputs=self.observations,

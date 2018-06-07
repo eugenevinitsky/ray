@@ -105,7 +105,9 @@ DEFAULT_CONFIG = {
     # Size of the perceptrons layer before z
     "units_z": 256,
     "separate_VF_approximator": True,
-    "LSTM_OR_NOT": True
+    "LSTM_OR_NOT": True,
+    #Proba of designing a random goal
+    "epsilon": 0.05
 }
 
 
@@ -159,10 +161,12 @@ class FeudalAgent(Agent):
         print("===> iteration", self.iteration)
 
         iter_start = time.time()
-        self.noise_table = [dict() for _ in range(len(agents))]
+        noise_table = [dict() for _ in range(len(agents))]
 
         if self.ES:
             weights_manager_outputs = model.get_weights_manager_loss()
+            print("weights_manager_outputs")
+            print(weights_manager_outputs)
             count_1 = 0
             count_2 = 0
             for a in agents:
@@ -184,16 +188,19 @@ class FeudalAgent(Agent):
                         weights_manager_outputs_agent[key] -= self.config["noise_stdev"] * noise_
                         noise_agent[key] = -noise_
 
-                self.noise_table[index] = noise_agent
-
+                noise_table[index] = noise_agent
+                print("agent")
+                print(a)
+                print("weights_manager_outputs_agent")
+                print(weights_manager_outputs_agent)
                 a.set_weights_manager_loss.remote(weights_manager_outputs_agent)
-
+            print("noise_table")
+            print(noise_table)
 
         else:
             weights_manager_loss = ray.put(model.get_weights_manager_loss())
             [a.set_weights_manager_loss.remote(weights_manager_loss) for a in agents]
 
-        model_weights = model.get_weights_worker_loss()
         weights_worker_loss = ray.put(model.get_weights_worker_loss())
 
         [a.set_weights_worker_loss.remote(weights_worker_loss) for a in agents]
@@ -225,10 +232,6 @@ class FeudalAgent(Agent):
         shuffle_end = time.time()
         tuples_per_device = model.load_data(
             samples, self.iteration == 0 and config["full_trace_data_load"])
-        print("tuples_per_device")
-        print(tuples_per_device)
-        print("model.per_device_batch_size")
-        print(model.per_device_batch_size)
         load_end = time.time()
         rollouts_time = rollouts_end - iter_start
         shuffle_time = shuffle_end - rollouts_end
@@ -239,8 +242,7 @@ class FeudalAgent(Agent):
             batch_index = 0
             num_batches = (
                 int(tuples_per_device) // config["sgd_batchsize"])
-            print("num_batches")
-            print(num_batches)
+
             if self.ES:
                 loss_worker, policy_loss_worker, vf_loss_worker, entropy_worker = [], [], [], []
             else:
@@ -344,12 +346,15 @@ class FeudalAgent(Agent):
 
         FilterManager.synchronize(
             self.local_evaluator.filters, self.remote_agents)
-        res = self._fetch_metrics_from_remote_evaluators()
+        res = self._fetch_metrics_from_remote_evaluators(noise_table)
         res = res._replace(info=info)
 
         return res
 
-    def _fetch_metrics_from_remote_evaluators(self):
+    def _fetch_metrics_from_remote_evaluators(self, noise_table):
+
+        print("noise_table")
+        print(noise_table)
         episode_rewards = []
         episode_lengths = []
         episode_rewards_agents = []
@@ -367,18 +372,27 @@ class FeudalAgent(Agent):
             episode_rewards_agents.append(
                 np.mean(episode_rewards_agents_local) if episode_rewards_agents_local else float('nan'))
 
+        print("episode_rewards_agents")
+        print(episode_rewards_agents)
 
         if self.ES:
             weights_manager_outputs = self.local_evaluator.get_weights_manager_loss()
-            denominator = len(self.remote_agents) * self.config["noise_stdev"]
-            for i in range(len(self.remote_agents)):
-                noise = self.noise_table[i]
+            print("weights_manager_outputs")
+            print("ASCERT THEY ARE THE SAME AS AT THE BEGINNING")
+            print(weights_manager_outputs)
+            denominator = len(self.num_workers) * self.config["noise_stdev"]
+            for i in range(len(self.num_workers)):
+                noise = noise_table[i]
                 for key, variable in weights_manager_outputs.items():
                     weights_manager_outputs[key] += self.config["alpha"] * (1 / denominator) * noise[key] * \
                                                     episode_rewards_agents[i]
 
-            self.local_evaluator.set_weights_manager_loss(weights_manager_outputs)
 
+            self.local_evaluator.set_weights_manager_loss(weights_manager_outputs)
+            new_manager_weights = self.local_evaluator.get_weights_manager_loss()
+            print("new_manager_weights")
+            print("Insure that the weights have been modified!!!")
+            print(new_manager_weights)
 
         avg_reward = (
             np.mean(episode_rewards) if episode_rewards else float('nan'))

@@ -38,4 +38,5 @@ MsPacman:
       min_steps_per_task: 200
       num_sgd_iter: 30
       observation_filter: "NoFilter"
+      epsilon: 0.05
 
