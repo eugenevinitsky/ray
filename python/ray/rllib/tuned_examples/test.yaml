@@ -11,13 +11,13 @@ MsPacman:
     repeat: 1
     config:
       separate_VF_approximator: True
-      LSTM_OR_NOT: False
+      LSTM_OR_NOT: True
       ES: False
       noise_stdev: 0.1
       alpha: 0.001
       gamma: 0.99
       gamma_internal: 0.95
-      sgd_stepsize: 0.001
+      sgd_stepsize: 0.01
       entropy_coeff: 1.0
       tradeoff_rewards: 0.5
       horizon: 2000

@@ -180,6 +180,11 @@ class FeudalEvaluator(PolicyEvaluator):
                                     trajectories["advantages_worker"], trajectories["actions"], trajectories["diff"],
                                     trajectories["value_targets_manager"], trajectories["advantages_manager"]]
 
+        print('trajectories["advantages_worker"]')
+        print(trajectories["advantages_worker"])
+        print('trajectories["advantages_manager"]')
+        print(trajectories["advantages_manager"])
+
         return self.par_opt.load_data(
                 self.sess,
             liste_inputs_trajectories,

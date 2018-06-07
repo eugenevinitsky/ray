@@ -211,11 +211,11 @@ class FeudalLoss(object):
                 ]
 
                 self.policy_manager = [
-                    self.s, self.g
+                    self.logp_manager, self.s, self.g
                 ]
 
                 self.policy_results = [
-                    self.sampler, self.curr_logits, self.value_function_worker]
+                    self.curr_logits, self.pi, self.log_pi, self.sampler, self.curr_logits, self.value_function_worker]
 
     def compute_manager_critic(self, observation):
         z, vfm = self.sess.run(
@@ -224,17 +224,23 @@ class FeudalLoss(object):
         return z, vfm[0]
 
     def compute_manager(self, observation, z):
-        s, g  = self.sess.run(
+        logp_manager, s, g  = self.sess.run(
             self.policy_manager,
             feed_dict={self.observations: [observation], self.carried_z: z})
-        return s, g
+        return logp_manager, s, g
 
     def compute_worker(self, g, z, gsum):
-        action, logprobs, vfw = self.sess.run(
+        curr_logits, pi, log_pi, action, logprobs, vfw = self.sess.run(
                     self.policy_results,
                     feed_dict={self.carried_g: g, self.carried_z: z, self.carried_gsum: gsum})
 
-        return action, vfw[0], logprobs[0]
+        return curr_logits, pi, log_pi, action, vfw[0], logprobs[0]
+
+
+    def debug_log_time_action(self, action, log_pi):
+        return self.sess.run(
+            self.log_time_action,
+            feed_dict={self.actions: [action], self.log_pi: log_pi})
 
     def loss_total(self):
         return self.loss_total
