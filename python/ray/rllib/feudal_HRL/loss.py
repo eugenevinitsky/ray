@@ -253,8 +253,6 @@ class FeudalLoss(object):
 
         return action, {"vf_preds_manager": vfm[0], "vf_preds_worker": vfw, "logprobs": logprobs[0]}
 
-
-
     def loss_total(self):
         return self.loss_total
 

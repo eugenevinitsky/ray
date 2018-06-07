@@ -165,8 +165,6 @@ class FeudalAgent(Agent):
 
         if self.ES:
             weights_manager_outputs = model.get_weights_manager_loss()
-            print("weights_manager_outputs")
-            print(weights_manager_outputs)
             count_1 = 0
             count_2 = 0
             for a in agents:
@@ -189,13 +187,7 @@ class FeudalAgent(Agent):
                         noise_agent[key] = -noise_
 
                 noise_table[index] = noise_agent
-                print("agent")
-                print(a)
-                print("weights_manager_outputs_agent")
-                print(weights_manager_outputs_agent)
                 a.set_weights_manager_loss.remote(weights_manager_outputs_agent)
-            print("noise_table")
-            print(noise_table)
 
         else:
             weights_manager_loss = ray.put(model.get_weights_manager_loss())
@@ -353,8 +345,6 @@ class FeudalAgent(Agent):
 
     def _fetch_metrics_from_remote_evaluators(self, noise_table):
 
-        print("noise_table")
-        print(noise_table)
         episode_rewards = []
         episode_lengths = []
         episode_rewards_agents = []
@@ -372,16 +362,10 @@ class FeudalAgent(Agent):
             episode_rewards_agents.append(
                 np.mean(episode_rewards_agents_local) if episode_rewards_agents_local else float('nan'))
 
-        print("episode_rewards_agents")
-        print(episode_rewards_agents)
-
         if self.ES:
             weights_manager_outputs = self.local_evaluator.get_weights_manager_loss()
-            print("weights_manager_outputs")
-            print("ASCERT THEY ARE THE SAME AS AT THE BEGINNING")
-            print(weights_manager_outputs)
-            denominator = len(self.num_workers) * self.config["noise_stdev"]
-            for i in range(len(self.num_workers)):
+            denominator = self.num_workers * self.config["noise_stdev"]
+            for i in range(self.num_workers):
                 noise = noise_table[i]
                 for key, variable in weights_manager_outputs.items():
                     weights_manager_outputs[key] += self.config["alpha"] * (1 / denominator) * noise[key] * \
@@ -389,10 +373,7 @@ class FeudalAgent(Agent):
 
 
             self.local_evaluator.set_weights_manager_loss(weights_manager_outputs)
-            new_manager_weights = self.local_evaluator.get_weights_manager_loss()
-            print("new_manager_weights")
-            print("Insure that the weights have been modified!!!")
-            print(new_manager_weights)
+
 
         avg_reward = (
             np.mean(episode_rewards) if episode_rewards else float('nan'))

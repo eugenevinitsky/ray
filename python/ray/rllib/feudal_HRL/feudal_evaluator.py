@@ -144,7 +144,6 @@ class FeudalEvaluator(PolicyEvaluator):
                         policy.mean_entropy_worker for policy in policies]), 0)
 
 
-
         # References to the model weights
         self.common_policy = self.par_opt.get_common_loss()
 
