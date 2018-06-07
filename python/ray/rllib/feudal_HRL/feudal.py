@@ -59,7 +59,7 @@ DEFAULT_CONFIG = {
     # Coefficient of the value function loss
     "vf_loss_coeff_worker": 1.0,
     # Which observation filter to apply to the observation
-    "observation_filter": "MeanStdFilter",
+    "observation_filter": "NoFilter",
     # If >1, adds frameskip
     "extra_frameskip": 1,
     # Number of timesteps collected in each outer loop

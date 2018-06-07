@@ -174,7 +174,6 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
             action, vfw, logprob = policy.compute_worker(g, z, g_sum)
             action_to_take = action.argmax()
 
-
             observation, reward, terminal, info = env.step(action_to_take)
             observation = obs_filter(observation)
 

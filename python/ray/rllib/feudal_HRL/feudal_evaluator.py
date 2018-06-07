@@ -164,7 +164,7 @@ class FeudalEvaluator(PolicyEvaluator):
         self.obs_filter = get_filter(
             config["observation_filter"], self.env.observation_space.shape)
 
-        self.rew_filter = MeanStdFilter((), clip=1.0)
+        self.rew_filter = MeanStdFilter((), demean=False, destd=False, clip=1.0)
         self.filters = {"obs_filter": self.obs_filter,
                         "rew_filter": self.rew_filter}
 

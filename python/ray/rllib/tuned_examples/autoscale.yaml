@@ -1,7 +1,7 @@
 # cluster.yaml =========================================
 
 # An unique identifier for the head node and workers of this cluster.
-cluster_name: lucleflem-FEUDAL_ES #<YOUR NAME>
+cluster_name: lucleflem-FEUDAL #<YOUR NAME>
 
 # The minimum number of workers nodes to launch in addition to the head
 # node. This number should be >= 0.
@@ -40,6 +40,7 @@ auth:
 # http://boto3.readthedocs.io/en/latest/reference/services/ec2.html#EC2.ServiceResource.create_instances
 head_node:
     InstanceType: m4.16xlarge
+    #InstanceType: g3.8xlarge
     ImageId: ami-a2948fc2 # Flow AMI (Ubuntu)
 
     # Additional options in the boto docs.
@@ -70,7 +71,7 @@ setup_commands:
     # checkout your desired branch on all worker nodes
     # - cd learning-traffic && GIT_SSH_COMMAND="ssh -i ~/ray_bootstrap_key.pem" git fetch
     - cd /tmp && cp foo ~/ray_autoscaler_key.pem
-    - cd ray && git fetch eugene_upstream && git checkout HRL_for_Discrete
+    - cd ray && git fetch eugene_upstream && git checkout HRL_implementation && git pull
 
 # Custom commands that will be run on the head node after common setup.
 head_setup_commands:
