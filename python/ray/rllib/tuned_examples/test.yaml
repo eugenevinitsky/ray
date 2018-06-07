@@ -1,0 +1,41 @@
+MsPacman:
+    env: Alien-v0
+    run: FEUDAL
+    stop: {"training_iteration": 1000}
+    trial_resources:
+        cpu: 1
+        gpu: 0
+        extra_cpu: 24
+    upload_dir: "s3://bucketlearningtraffic/Feudal/LSTM_ES_alphae-3LRe-5"
+    checkpoint_freq: 1
+    repeat: 1
+    config:
+      separate_VF_approximator: True
+      LSTM_OR_NOT: False
+      ES: True
+      noise_stdev: 0.1
+      alpha: 0.001
+      gamma: 0.99
+      gamma_internal: 0.95
+      sgd_stepsize: 1.0
+      entropy_coeff: 1.0
+      tradeoff_rewards: 0.5
+      horizon: 2000
+      use_gae: True
+      lambda: 0.97
+      g_dim: 256
+      kappa: 1.0
+      k: 16
+      vf_hidden_size: [64, 64]
+      c: 10
+      dilatation_rate: 10
+      units_z: 256
+      num_workers: 25
+      timesteps_per_batch: 100000
+      sgd_batchsize: 1024
+      vf_loss_coeff_manager: 1.0
+      vf_loss_coeff_worker: 1.0
+      min_steps_per_task: 200
+      num_sgd_iter: 20
+      observation_filter: "MeanStdFilter"
+      epsilon: 0.05

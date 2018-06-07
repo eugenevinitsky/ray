@@ -30,8 +30,6 @@ class ProximalPolicyLoss(object):
         self.actions = actions
         action_dim = action_space.shape[0]
 
-
-
         hiddens_policy = config["hiddens_policy"]
 
         with tf.name_scope("policy_net"):
@@ -53,6 +51,7 @@ class ProximalPolicyLoss(object):
                 activation_fn=None, scope=label)
 
             self.curr_dist = distribution_class(self.curr_logits)
+
 
         self.sampler = self.curr_dist.sample()
 
