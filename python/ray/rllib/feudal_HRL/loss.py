@@ -132,7 +132,7 @@ class FeudalLoss(object):
 
                 self.surr_manager = self.logp_manager * advantages_manager
                 self.mean_surr_manager = tf.reduce_mean(self.surr_manager)
-                
+
                 self.loss_manager = tf.reduce_mean(
                         -self.surr_manager +
                         config["vf_loss_coeff_manager"] * self.vf_loss_manager)
@@ -151,7 +151,6 @@ class FeudalLoss(object):
                 outputs_worker = tf.layers.dense(inputs=self.carried_z, \
                                     units=self.action_dim * config["k"], \
                                     activation=tf.nn.elu)
-
 
             U = tf.reshape(outputs_worker, [-1, self.action_dim, config["k"]])
 

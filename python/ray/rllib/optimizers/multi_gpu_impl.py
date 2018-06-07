@@ -80,6 +80,13 @@ class LocalSyncParallelOptimizer_Feudal(object):
             for i, (grad, var) in enumerate(avg):
                 if grad is not None:
                     avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+
+        """
+        print("NOW WE COMPUTE THE DIFFERENT GRADIENTS")
+        for t in self._towers:
+            print(t.grads)
+        """
+
         self._train_op = self.optimizer.apply_gradients(avg)
 
 

@@ -193,8 +193,9 @@ class FeudalAgent(Agent):
             weights_manager_loss = ray.put(model.get_weights_manager_loss())
             [a.set_weights_manager_loss.remote(weights_manager_loss) for a in agents]
 
-
+        model_weights = model.get_weights_worker_loss()
         weights_worker_loss = ray.put(model.get_weights_worker_loss())
+
         [a.set_weights_worker_loss.remote(weights_worker_loss) for a in agents]
 
         samples = collect_samples(agents, config, self.local_evaluator)
