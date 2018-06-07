@@ -248,6 +248,8 @@ class PPOAgent(Agent):
             self.local_evaluator.filters, self.remote_evaluators)
         res = self._fetch_metrics_from_remote_evaluators()
         res = res._replace(info=info)
+        self.local_evaluator.update_global_step()
+
         return res
 
 

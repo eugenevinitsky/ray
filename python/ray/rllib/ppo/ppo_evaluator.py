@@ -30,6 +30,7 @@ class PPOEvaluator(PolicyEvaluator):
     """
 
     def __init__(self, registry, env_creator, config, logdir, is_remote, ADB):
+        self.global_step = 0
         self.ADB = ADB
         self.registry = registry
         self.is_remote = is_remote
@@ -90,7 +91,7 @@ class PPOEvaluator(PolicyEvaluator):
             self.per_device_batch_size = int(self.batch_size / len(devices))
 
         def build_loss(obs, vtargets, advs, acts, plog, pvf_preds):
-                return ProximalPolicyLoss(
+                return ProximalPolicyLoss(self.global_step,
                         self.env.observation_space, self.env.action_space,
                         obs, vtargets, advs, acts, plog, pvf_preds, self.logit_dim,
                         self.kl_coeff, self.distribution_class, self.config,
@@ -237,3 +238,8 @@ class PPOEvaluator(PolicyEvaluator):
             if flush_after:
                 f.clear_buffer()
         return return_filters
+
+
+    def update_global_step(self):
+        self.global_step = self.global_step + 1
+        return

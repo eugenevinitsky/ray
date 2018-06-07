@@ -14,7 +14,7 @@ class ProximalPolicyLoss(object):
     is_recurrent = False
 
     def __init__(
-            self, observation_space, action_space,
+            self, global_step, observation_space, action_space,
             observations, value_targets, advantages, actions,
             prev_logits, prev_vf_preds, logit_dim,
             kl_coeff, distribution_class, config, sess, registry, ADB):
@@ -140,10 +140,15 @@ class ProximalPolicyLoss(object):
             self.vf_loss = tf.minimum(self.vf_loss1, self.vf_loss2)
             self.mean_vf_loss = tf.reduce_mean(self.vf_loss)
 
+            beta = tf.train.polynomial_decay(config["entropy_coeff"], global_step,
+                                             end_learning_rate=0,
+                                             decay_steps=500,
+                                             power=1.5)
+
             self.loss = tf.reduce_mean(
-                    -self.surr + kl_coeff * self.kl +
+                    - 0.01 * self.surr + kl_coeff * self.kl +
                     config["vf_loss_coeff"] * self.vf_loss -
-                    config["entropy_coeff"] * self.entropy)
+                    0.01 * beta * self.entropy)
                     
         else:
             self.mean_vf_loss = tf.constant(0.0)
