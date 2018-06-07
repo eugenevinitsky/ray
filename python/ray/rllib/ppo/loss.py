@@ -19,7 +19,6 @@ class ProximalPolicyLoss(object):
             prev_logits, prev_vf_preds, logit_dim,
             kl_coeff, distribution_class, config, sess, registry, ADB):
 
-        print("THIS IS THE NEW PPL")
         self.filer_summaries = []
         self.ADB = ADB
         self.prev_dist = distribution_class(prev_logits)
