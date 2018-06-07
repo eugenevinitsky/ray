@@ -33,6 +33,7 @@ class FeudalEvaluator(PolicyEvaluator):
     """
 
     def __init__(self, registry, env_creator, config, logdir, is_remote, ES):
+        self.global_step = 0
         self.ES = ES
         self.registry = registry
         self.is_remote = is_remote
@@ -98,7 +99,7 @@ class FeudalEvaluator(PolicyEvaluator):
 
         def build_loss(goal, gsum, z_to_feed, obs, value_targets_worker, advantages_worker,
                            acts, diff, value_targets_manager, advantages_manager):
-                return FeudalLoss(goal, gsum, z_to_feed,
+                return FeudalLoss(self.global_step, goal, gsum, z_to_feed,
                                   self.env.observation_space, self.env.action_space,
                                   obs, value_targets_worker, advantages_worker, acts,
                                   self.distribution_class_obs, self.config,
@@ -109,7 +110,7 @@ class FeudalEvaluator(PolicyEvaluator):
              self.advantages_worker, self.actions, self.diff, self.value_targets_manager, self.advantages_manager]
 
         self.par_opt = LocalSyncParallelOptimizer_Feudal(
-            tf.train.AdamOptimizer(self.config["sgd_stepsize"]),
+            tf.train.RMSProp(self.config["sgd_stepsize"]),
             self.devices,
             liste_inputs,
             self.per_device_batch_size,
@@ -162,9 +163,10 @@ class FeudalEvaluator(PolicyEvaluator):
 
         self.obs_filter = get_filter(
             config["observation_filter"], self.env.observation_space.shape)
-        self.rew_filter = MeanStdFilter((), clip=5.0)
+        self.rew_filter = MeanStdFilter((), clip=1.0)
         self.filters = {"obs_filter": self.obs_filter,
                         "rew_filter": self.rew_filter}
+
         self.sampler = SyncSampler_Feudal(
             self.env, self.common_policy, self.obs_filter,
             self.config["horizon"], self.config["c"], self.ES, self.config["horizon"])
@@ -276,4 +278,8 @@ class FeudalEvaluator(PolicyEvaluator):
             if flush_after:
                 f.clear_buffer()
         return return_filters
+
+    def update_global_step(self):
+        self.global_step = self.global_step + 1
+        return
 

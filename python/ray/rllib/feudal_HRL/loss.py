@@ -18,7 +18,7 @@ class FeudalLoss(object):
     is_recurrent = False
 
     def __init__(
-            self, __g__, __gsum__, __z__, observation_space, action_space,
+            self, global_step, __g__, __gsum__, __z__, observation_space, action_space,
             observations, value_targets_worker, advantages_worker, actions,
             distribution_class_obs, config, sess, registry, ES,
             diff=None, value_targets_manager=None, advantages_manager=None):
@@ -177,10 +177,16 @@ class FeudalLoss(object):
             self.surr_worker = tf.reduce_sum(self.log_time_action * advantages_worker, [1])
             self.mean_policy_loss_worker = -tf.reduce_mean(self.surr_worker)
 
+
+            beta = tf.train.polynomial_decay(config["entropy_coeff"], global_step,
+                end_learning_rate=0,
+                decay_steps=500,
+                power=1)
+            
             self.loss_worker = tf.reduce_mean(
                         -self.surr_worker +
                         config["vf_loss_coeff_worker"] * self.vf_loss_worker -
-                        config["entropy_coeff"] * self.entropy_worker)
+                        beta * self.entropy_worker)
 
         with tf.variable_scope("Loss_TOTAL"):
 

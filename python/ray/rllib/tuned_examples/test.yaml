@@ -17,8 +17,8 @@ MsPacman:
       alpha: 0.001
       gamma: 0.99
       gamma_internal: 0.95
-      sgd_stepsize: 0.00001
-      entropy_coeff: 0
+      sgd_stepsize: 1.0
+      entropy_coeff: 1.0
       tradeoff_rewards: 0.5
       horizon: 2000
       use_gae: True
@@ -37,5 +37,5 @@ MsPacman:
       vf_loss_coeff_worker: 1.0
       min_steps_per_task: 200
       num_sgd_iter: 20
-      observation_filter: "NoFilter"
+      observation_filter: "MeanStdFilter"
       epsilon: 0.05

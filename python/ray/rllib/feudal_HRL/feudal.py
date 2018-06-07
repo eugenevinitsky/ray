@@ -59,7 +59,7 @@ DEFAULT_CONFIG = {
     # Coefficient of the value function loss
     "vf_loss_coeff_worker": 1.0,
     # Which observation filter to apply to the observation
-    "observation_filter": "NoFilter",
+    "observation_filter": "MeanStdFilter",
     # If >1, adds frameskip
     "extra_frameskip": 1,
     # Number of timesteps collected in each outer loop
@@ -341,6 +341,7 @@ class FeudalAgent(Agent):
         res = self._fetch_metrics_from_remote_evaluators(noise_table)
         res = res._replace(info=info)
 
+        self.local_evaluator.update_global_step()
         return res
 
     def _fetch_metrics_from_remote_evaluators(self, noise_table):
