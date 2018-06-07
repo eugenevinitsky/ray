@@ -78,9 +78,6 @@ class FeudalLoss(object):
 
             g_hat = tf.reshape(g_hat, shape=(-1, config["g_dim"]))
 
-            if np.random.rand() < config["epsilon"]:
-                g_hat = tf.random_normal(shape=(-1, config["g_dim"]), mean=0.0, stddev=1.0)
-
             self.g = tf.nn.l2_normalize(g_hat, dim=1)
 
 
