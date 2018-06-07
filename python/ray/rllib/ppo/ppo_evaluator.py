@@ -30,6 +30,7 @@ class PPOEvaluator(PolicyEvaluator):
     """
 
     def __init__(self, registry, env_creator, config, logdir, is_remote, ADB):
+        print("Check modif are here")
         self.global_step = 0
         self.ADB = ADB
         self.registry = registry
