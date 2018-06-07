@@ -41,7 +41,7 @@ def compute_internal_rewards(c, liste_s, liste_g):
 
     return internal_rewards / c
 
-def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, gamma_internal, ES, lambda_=1.0, lambda_internal= 0.97, use_gae=True):
+def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, gamma_internal, ES, lambda_=1.0, use_gae=True):
     """Given a rollout, compute its value targets and the advantage.
 
     Args:
@@ -55,8 +55,6 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
         SampleBatch (SampleBatch): Object with experience from rollout and
             processed rewards."""
 
-    # TODO: WORK MORE CLOSELY ON ADVANTAGES AND TARGETS
-
     traj = {}
     trajsize = len(rollout.data["actions"])
     for key in rollout.data:
@@ -65,36 +63,21 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
     for key in rollout.data_feudal:
         traj[key] = np.squeeze(np.stack(rollout.data_feudal[key]))
 
-    Q_functions = np.array(traj["vf_preds_worker"])
-    Q_max = np.amax(Q_functions, axis=1)
-
-    returns = discount_sum(traj["rewards"], gamma)
     internal_returns_ponctual = compute_internal_rewards(c, traj["s"], traj["g"])
-    internal_returns = discount_sum(internal_returns_ponctual, gamma_internal)
 
-    if ES == False:
-        vpred_t_manager = np.append(traj["vf_preds_manager"], [np.array(rollout.last_r)], axis=0)
-        delta_t_manager = traj["rewards"] + gamma * vpred_t_manager[1:] - vpred_t_manager[:-1]
-        traj["advantages_manager"] = discount(delta_t_manager, gamma * lambda_)
-        traj["value_targets_manager"] = returns
-    else:
-        traj["vf_preds_manager"] = returns
-        traj["advantages_manager"] = returns
-        traj["value_targets_manager"] = returns
-
+    Q_functions = np.array(traj["vf_preds_worker"])
     Q_pred_t = np.vstack((Q_functions, Q_functions[-1]))
+    Q_max = np.amax(Q_pred_t, axis=1)
 
+    vpred_t_manager = np.append(traj["vf_preds_manager"], [np.array(rollout.last_r)], axis=0)
+    delta_t_manager = traj["rewards"] + gamma * vpred_t_manager[1:] - vpred_t_manager[:-1]
+    traj["advantages_manager"] = discount(delta_t_manager, gamma * lambda_)
+    traj["value_targets_manager"] = traj["advantages_manager"] + traj["vf_preds_manager"]
+    #traj["value_targets_manager"] = traj["rewards"] + gamma * vpred_t_manager[1:]
 
-    if ES == False:
-        delta_t_worker = internal_returns_ponctual.reshape(-1, 1) + gamma_internal * Q_pred_t[1:] - Q_pred_t[:-1]
-        traj["advantages_worker"] = traj["advantages_manager"].reshape(-1, 1)+ \
-                                tradeoff_rewards * discount(delta_t_worker, gamma_internal * lambda_internal)
-    else:
-        delta_t_worker = traj["rewards"].reshape(-1, 1) + tradeoff_rewards * internal_returns_ponctual.reshape(-1, 1) + gamma_internal * Q_pred_t[1:] - Q_pred_t[:-1]
-        traj["advantages_worker"] = discount(delta_t_worker, gamma_internal * lambda_internal)
-
-    traj["value_targets_worker"] = internal_returns_ponctual + gamma_internal * Q_max
-
+    delta_t_worker = internal_returns_ponctual.reshape(-1, 1) + gamma_internal * Q_pred_t[1:] - Q_pred_t[:-1]
+    traj["advantages_worker"] = discount(delta_t_worker, gamma_internal * lambda_) + traj["advantages_manager"].reshape(-1, 1)
+    traj["value_targets_worker"] = internal_returns_ponctual + gamma_internal * Q_max[1:]
 
     for i in range(traj["advantages_worker"].shape[0]):
         traj["advantages_manager"][i] = reward_filter(traj["advantages_manager"][i])

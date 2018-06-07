@@ -80,6 +80,7 @@ class FeudalEvaluator(PolicyEvaluator):
         self.value_targets_manager = tf.placeholder(tf.float32, shape=(None,))
         self.advantages_manager = tf.placeholder(tf.float32, shape=(None,))
 
+
         if self.ES:
             self.distribution_class_obs = None
         else:
@@ -238,7 +239,7 @@ class FeudalEvaluator(PolicyEvaluator):
             samples = process_rollout_Feudal(self.config["c"], self.config["tradeoff_rewards"],
                                                  rollout, self.rew_filter, self.config["gamma"], self.config["gamma_internal"],\
                                                  self.ES,
-                                                 self.config["lambda"], self.config["lambda_internal"],
+                                                 self.config["lambda"],
                                                 use_gae=self.config["use_gae"])
 
             num_steps_so_far += samples.count

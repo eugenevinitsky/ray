@@ -117,6 +117,8 @@ class FeudalLoss(object):
         with tf.variable_scope("Manager_Loss"):
 
             self.manager_output = self.g
+            self.vf_loss_manager = tf.square(self.value_function_manager - value_targets_manager)
+            self.mean_vf_loss_manager = tf.reduce_mean(self.vf_loss_manager)
 
             if not self.ES:
 
@@ -130,10 +132,7 @@ class FeudalLoss(object):
 
                 self.surr_manager = self.logp_manager * advantages_manager
                 self.mean_surr_manager = tf.reduce_mean(self.surr_manager)
-
-                self.vf_loss_manager = tf.square(self.value_function_manager - value_targets_manager)
-                self.mean_vf_loss_manager = tf.reduce_mean(self.vf_loss_manager)
-
+                
                 self.loss_manager = tf.reduce_mean(
                         -self.surr_manager +
                         config["vf_loss_coeff_manager"] * self.vf_loss_manager)
@@ -212,18 +211,19 @@ class FeudalLoss(object):
 
         with tf.variable_scope("Loss_TOTAL"):
 
-            if not (self.ES):
+            if not self.ES:
                 self.loss_total = tf.reduce_mean(
-                            -self.surr_manager +
-                            config["vf_loss_coeff_manager"] * self.vf_loss_manager
-                            -self.surr_worker +
-                            config["vf_loss_coeff_worker"] * self.vf_loss_worker
-                            -config["entropy_coeff"] * self.entropy_worker)
+                            - self.surr_manager
+                            + config["vf_loss_coeff_manager"] * self.vf_loss_manager
+                            - self.surr_worker
+                            + config["vf_loss_coeff_worker"] * self.vf_loss_worker
+                            - config["entropy_coeff"] * self.entropy_worker)
             else:
                 self.loss_total = tf.reduce_mean(
-                    -self.surr_worker +
-                    config["vf_loss_coeff_worker"] * self.vf_loss_worker
-                    -config["entropy_coeff"] * self.entropy_worker)
+                    - self.surr_worker
+                    + config["vf_loss_coeff_manager"] * self.vf_loss_manager
+                    + config["vf_loss_coeff_worker"] * self.vf_loss_worker
+                    - config["entropy_coeff"] * self.entropy_worker)
 
             self.sess = sess
 

@@ -32,14 +32,12 @@ DEFAULT_CONFIG = {
     # GAE(lambda) parameter
     "lambda": 0.97,
     "model": {"free_log_std": False},
-    # Initial coefficient for KL divergence
-    "lambda_internal": 0.99,
     # Number of SGD iterations in each outer loop
     "num_sgd_iter": 30,
     # Stepsize of SGD
-    "sgd_stepsize": np.exp(np.random.uniform(10**(-4.5), 10**(-3.5))),
+    "sgd_stepsize": 1e-4,
     # Entropy coefficient
-    "entropy_coeff": np.exp(np.random.uniform(10**(-4), 10**(-3))),
+    "entropy_coeff": 0,
     # Treadeoff rewards
     "tradeoff_rewards": np.random.uniform(0, 1),
     # TODO(pcm): Expose the choice between gpus and cpus
