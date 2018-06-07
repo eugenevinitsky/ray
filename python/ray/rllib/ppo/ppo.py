@@ -308,4 +308,5 @@ class PPOAgent(Agent):
     def compute_action(self, observation):
         observation = self.local_evaluator.obs_filter(
             observation, update=False)
+        observation = np.ndarray.flatten(observation)
         return self.local_evaluator.common_policy.compute(observation)[0]
