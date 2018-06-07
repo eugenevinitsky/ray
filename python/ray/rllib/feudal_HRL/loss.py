@@ -30,7 +30,6 @@ class FeudalLoss(object):
         self.ES = ES
         self.action_dim= action_space.n
         self.actions = actions
-        # Saved so that we can compute actions given different observations
         self.observations = tf.cast(observations, tf.float32)
         self.diff = diff
 
@@ -182,7 +181,7 @@ class FeudalLoss(object):
                 end_learning_rate=0,
                 decay_steps=500,
                 power=1)
-            
+
             self.loss_worker = tf.reduce_mean(
                         -self.surr_worker +
                         config["vf_loss_coeff_worker"] * self.vf_loss_worker -

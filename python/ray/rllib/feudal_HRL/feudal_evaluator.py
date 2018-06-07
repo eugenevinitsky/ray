@@ -110,7 +110,7 @@ class FeudalEvaluator(PolicyEvaluator):
              self.advantages_worker, self.actions, self.diff, self.value_targets_manager, self.advantages_manager]
 
         self.par_opt = LocalSyncParallelOptimizer_Feudal(
-            tf.train.RMSProp(self.config["sgd_stepsize"]),
+            tf.train.RMSPropOptimizer(self.config["sgd_stepsize"]),
             self.devices,
             liste_inputs,
             self.per_device_batch_size,
