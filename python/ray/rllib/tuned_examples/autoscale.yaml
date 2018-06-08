@@ -71,7 +71,7 @@ setup_commands:
     # checkout your desired branch on all worker nodes
     # - cd learning-traffic && GIT_SSH_COMMAND="ssh -i ~/ray_bootstrap_key.pem" git fetch
     - cd /tmp && cp foo ~/ray_autoscaler_key.pem
-    - cd ray && git fetch eugene_upstream && git checkout HRL_implementation && git pull
+    - cd ray && git fetch eugene_upstream && git checkout HRL_implementation && git pull eugene_upstream HRL_implementation
 
 # Custom commands that will be run on the head node after common setup.
 head_setup_commands:

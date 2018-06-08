@@ -211,7 +211,7 @@ class FeudalLoss(object):
                 ]
 
                 self.policy_manager = [
-                    self.logp_manager, self.s, self.g
+                    self.s, self.g
                 ]
 
                 self.policy_results = [
@@ -224,10 +224,10 @@ class FeudalLoss(object):
         return z, vfm[0]
 
     def compute_manager(self, observation, z):
-        logp_manager, s, g  = self.sess.run(
+        s, g  = self.sess.run(
             self.policy_manager,
             feed_dict={self.observations: [observation], self.carried_z: z})
-        return logp_manager, s, g
+        return s, g
 
     def compute_worker(self, g, z, gsum):
         curr_logits, pi, log_pi, action, logprobs, vfw = self.sess.run(

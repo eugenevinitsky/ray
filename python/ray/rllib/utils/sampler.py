@@ -160,7 +160,7 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
         rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
         for step in range(num_local_steps):
             z, vfm = policy.compute_manager_critic(last_observation, *last_features)
-            logp_manager, s, g = policy.compute_manager(last_observation, z)
+            s, g = policy.compute_manager(last_observation, z)
             if step == 0:
                 g_s = np.array([g])
                 g_sum = g
@@ -183,8 +183,6 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
             print("log_time_action")
             print(log_time_action)
             """
-            print('logp_manager')
-            print(logp_manager)
             action_to_take = action.argmax()
 
 
