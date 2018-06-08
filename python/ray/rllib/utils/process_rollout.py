@@ -80,10 +80,10 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
     traj["advantages_worker"] = tradeoff_rewards * discount(delta_t_worker, gamma_internal * lambda_) + traj["advantages_manager"]
     """
     traj["value_targets_manager"] = returns
-    traj["advantages_manager"] = returns - vpred_t_worker[:-1]
+    traj["advantages_manager"] = returns - vpred_t_manager[:-1]
 
-    traj["value_targets_worker"] = returns + tradeoff_rewards * internal_returns
-    traj["advantages_worker"] = returns - vpred_t_manager[:-1] + \
+    traj["value_targets_worker"] = internal_returns
+    traj["advantages_worker"] = traj["advantages_manager"].copy() + \
                                 tradeoff_rewards * (internal_returns  - vpred_t_worker[:-1])
 
     for i in range(traj["advantages_worker"].shape[0]):
@@ -155,8 +155,8 @@ def process_rollout(rollout, reward_filter, gamma, ADB, lambda_=1.0, use_gae=Tru
             #traj["advantages"] = discount(delta_t, gamma * lambda_)
             traj["advantages"] = returns - vpred_t[:-1]
 
-        #traj["value_targets"] = traj["rewards"] + gamma * traj["vf_preds"]
-        traj["value_targets"] = returns
+        traj["value_targets"] = traj["rewards"] + gamma * traj["vf_preds"]
+        #traj["value_targets"] = returns
 
     else:
         rewards_plus_v = np.stack(

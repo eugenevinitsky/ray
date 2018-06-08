@@ -19,7 +19,7 @@ MsPacman:
       gamma_internal: 0.95
       sgd_stepsize: 0.01
       entropy_coeff: 1.0
-      tradeoff_rewards: 0.5
+      tradeoff_rewards: 1.0
       horizon: 2000
       use_gae: True
       lambda: 0.97

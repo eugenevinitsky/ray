@@ -89,8 +89,8 @@ class SyncSampler_Feudal(object):
     async = False
 
     def __init__(self, env, policy, obs_filter,
-                 num_local_steps, c, ES, horizon=None):
-        self.ES = ES
+                 num_local_steps, c, epsilon, horizon=None):
+        self.epsilon = epsilon
         self.num_local_steps = num_local_steps
         self.horizon = horizon
         self.env = env
@@ -98,7 +98,7 @@ class SyncSampler_Feudal(object):
         self._obs_filter = obs_filter
         self.rollout_provider = _env_runner_Feudal(
             self.env, self.policy, self.num_local_steps, self.horizon,
-            self._obs_filter, c, self.ES)
+            self._obs_filter, c, self.epsilon)
         self.metrics_queue = queue.Queue()
 
     def get_data(self):
@@ -120,7 +120,7 @@ class SyncSampler_Feudal(object):
 
 
 
-def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES):
+def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, epsilon):
     """This implements the logic of the thread runner.
 
     It continually runs the policy, and as long as the rollout exceeds a
@@ -139,7 +139,8 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
         rollout (PartialRollout): Object containing state, action, reward,
             terminal condition, and other fields as dictated by `policy`.
     """
-    last_observation = obs_filter(env.reset())
+    observation_prev = obs_filter(env.reset())
+    observation_curr = observation_prev.copy()
     try:
         horizon = horizon if horizon else env.spec.max_episode_steps
     except Exception:
@@ -159,8 +160,14 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
         terminal_end = False
         rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
         for step in range(num_local_steps):
+
+            last_observation = observation_curr - observation_prev
+
             z, vfm = policy.compute_manager_critic(last_observation, *last_features)
             s, g = policy.compute_manager(last_observation, z)
+            if np.random.rand() < epsilon:
+                g = np.random.normal(loc=0.0, scale=1.0, size=g.shape)
+
             if step == 0:
                 g_s = np.array([g])
                 g_sum = g
@@ -184,10 +191,14 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
             print(log_time_action)
             """
             action_to_take = action.argmax()
+            if np.random.rand() < epsilon:
+                action_to_take = np.random.randint(0, len(action))
 
 
-            observation, reward, terminal, info = env.step(action_to_take)
-            observation = obs_filter(observation)
+            observation_, reward, terminal, info = env.step(action_to_take)
+            observation_ = obs_filter(observation_)
+            observation_prev = observation_curr.copy()
+            observation_curr = observation_.copy()
 
             length += 1
             rewards += reward
@@ -204,7 +215,7 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
                         rewards=reward,
                         dones=terminal,
                         features=last_features,
-                        new_obs=observation,
+                        new_obs=observation_,
                         vf_preds_manager=vfm,
                         vf_preds_worker=vfw,
                         logprobs=logprob)
@@ -212,7 +223,7 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
                                g=g,
                                z_to_feed=z)
 
-            last_observation = observation
+            #last_observation = observation
             last_features = features
 
             if terminal:
@@ -221,7 +232,10 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
 
                 if (length >= horizon or
                         not env.metadata.get("semantics.autoreset")):
-                    last_observation = obs_filter(env.reset())
+                    #last_observation = obs_filter(env.reset())
+
+                    observation_prev = obs_filter(env.reset())
+                    observation_curr = observation_prev.copy()
                     if hasattr(policy, "get_initial_features"):
                         last_features = policy.get_initial_features()
                     else:
@@ -232,7 +246,7 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filter, c, ES)
                     break
 
         if not terminal_end:
-            rollout.last_r = policy.value(last_observation, *last_features)
+            rollout.last_r = policy.value(observation_curr, *last_features)
 
         # Once we have enough experience, yield it, and have the ThreadRunner
         # place it on a queue.

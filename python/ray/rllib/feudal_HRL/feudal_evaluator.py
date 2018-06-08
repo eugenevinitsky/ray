@@ -170,7 +170,7 @@ class FeudalEvaluator(PolicyEvaluator):
 
         self.sampler = SyncSampler_Feudal(
             self.env, self.common_policy, self.obs_filter,
-            self.config["horizon"], self.config["c"], self.ES, self.config["horizon"])
+            self.config["horizon"], self.config["c"], self.config["epsilon"], self.config["horizon"])
 
         self.sess.run(tf.global_variables_initializer())
 
