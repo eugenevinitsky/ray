@@ -12,6 +12,7 @@ from tensorflow.python import debug as tf_debug
 
 import ray
 from ray.tune.result import TrainingResult
+from ray.tune.trial import Resources
 from ray.rllib.agent import Agent
 from ray.rllib.utils import FilterManager
 from ray.rllib.ppo.ppo_evaluator import PPOEvaluator
@@ -57,7 +58,7 @@ DEFAULT_CONFIG = {
     # Target value for KL divergence
     "kl_target": 0.01,
     # Config params to pass to the model
-    "model": {"free_log_std": False},
+    "model": {"free_log_std": False, "fcnet_hiddens": [64, 64], "fcnet_activation": "tanh"},
     # Which observation filter to apply to the observation
     "observation_filter": "MeanStdFilter",
     # If >1, adds frameskip
@@ -69,8 +70,10 @@ DEFAULT_CONFIG = {
     "min_steps_per_task": 200,
     # Number of actors used to collect the rollouts
     "num_workers": 5,
-    # Resource requirements for remote actors
-    "worker_resources": {"num_cpus": None},
+    # Whether to allocate GPUs for workers (if > 0).
+    "num_gpus_per_worker": 0,
+    # Whether to allocate CPUs for workers (if > 0).
+    "num_cpus_per_worker": 1,
     # Dump TensorFlow timeline after this many SGD minibatches
     "full_trace_nth_sgd_batch": -1,
     # Whether to profile data loading
@@ -89,25 +92,26 @@ DEFAULT_CONFIG = {
 
 class PPOAgent(Agent):
     _agent_name = "PPO"
-    _allow_unknown_subkeys = ["model", "tf_session_args", "env_config",
-                              "worker_resources"]
+    _allow_unknown_subkeys = ["model", "tf_session_args", "env_config"]
     _default_config = DEFAULT_CONFIG
 
-    def _init(self):
+    @classmethod
+    def default_resource_request(cls, config):
+        cf = dict(cls._default_config, **config)
+        return Resources(
+            cpu=1,
+            gpu=len([d for d in cf["devices"] if "gpu" in d.lower()]),
+            extra_cpu=cf["num_cpus_per_worker"] * cf["num_workers"],
+            extra_gpu=cf["num_gpus_per_worker"] * cf["num_workers"])
 
-        self.shared_model = (self.config["model"].get("custom_options", {}).
-                        get("multiagent_shared_model", False))
-        if self.shared_model:
-            self.num_models = 1
-        else:
-            self.num_models = len(self.config["model"].get(
-                "custom_options", {}).get("multiagent_obs_shapes", [1]))
+    def _init(self):
         self.global_step = 0
-        self.kl_coeff = [self.config["kl_coeff"]] * self.num_models
+        self.kl_coeff = self.config["kl_coeff"]
         self.local_evaluator = PPOEvaluator(
             self.registry, self.env_creator, self.config, self.logdir, False)
         RemotePPOEvaluator = ray.remote(
-            **self.config["worker_resources"])(PPOEvaluator)
+            num_cpus=self.config["num_cpus_per_worker"],
+            num_gpus=self.config["num_gpus_per_worker"])(PPOEvaluator)
         self.remote_evaluators = [
             RemotePPOEvaluator.remote(
                 self.registry, self.env_creator, self.config, self.logdir,
@@ -203,7 +207,7 @@ class PPOAgent(Agent):
                 metric_prefix = "ppo/sgd/final_iter/"
                 values.append(tf.Summary.Value(
                     tag=metric_prefix + "kl_coeff",
-                    simple_value=np.mean(self.kl_coeff)))
+                    simple_value=self.kl_coeff))
                 values.extend([
                     tf.Summary.Value(
                         tag=metric_prefix + "mean_entropy",
@@ -219,20 +223,14 @@ class PPOAgent(Agent):
                     self.file_writer.add_summary(sgd_stats, self.global_step)
             self.global_step += 1
             sgd_time += sgd_end - sgd_start
-
-        # treat single-agent as a multi-agent system w/ one agent
-        if not isinstance(kl, np.ndarray):
-            kl = [kl]
-
-        for i, kl_i in enumerate(kl):
-            if kl_i > 2.0 * config["kl_target"]:
-                self.kl_coeff[i] *= 1.5
-            elif kl_i < 0.5 * config["kl_target"]:
-                self.kl_coeff[i] *= 0.5
+        if kl > 2.0 * config["kl_target"]:
+            self.kl_coeff *= 1.5
+        elif kl < 0.5 * config["kl_target"]:
+            self.kl_coeff *= 0.5
 
         info = {
-            "kl_divergence": np.mean(kl),
-            "kl_coefficient": np.mean(self.kl_coeff),
+            "kl_divergence": kl,
+            "kl_coefficient": self.kl_coeff,
             "rollouts_time": rollouts_time,
             "shuffle_time": shuffle_time,
             "load_time": load_time,
@@ -271,7 +269,7 @@ class PPOAgent(Agent):
     def _stop(self):
         # workaround for https://github.com/ray-project/ray/issues/1516
         for ev in self.remote_evaluators:
-            ev.__ray_terminate__.remote(ev._ray_actor_id.id())
+            ev.__ray_terminate__.remote()
 
     def _save(self, checkpoint_dir):
         checkpoint_path = self.saver.save(

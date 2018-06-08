@@ -1,8 +1,21 @@
 hopper-ppo:
-    env: Hopper-v1
+    env: Hopper-v2
     run: PPO
     trial_resources:
         cpu: 1
-        gpu: 4
-        extra_cpu: 64
-    config: {"gamma": 0.995, "kl_coeff": 1.0, "num_sgd_iter": 20, "sgd_stepsize": .0001, "sgd_batchsize": 32768, "devices": ["/gpu:0", "/gpu:1", "/gpu:2", "/gpu:3"], "tf_session_args": {"device_count": {"GPU": 4}, "log_device_placement": false, "allow_soft_placement": true}, "timesteps_per_batch": 160000, "num_workers": 64}
+        gpu: 0
+        extra_cpu: 3
+    config:
+        horizon: 2048
+        gamma: 0.99
+        lambda: 0.95
+        kl_coeff: 0
+        entropy_coeff: 0
+        vf_loss_coeff: 1.0
+        num_sgd_iter: 10
+        sgd_stepsize: 0.0003
+        sgd_batchsize: 64
+        timesteps_per_batch: 8142
+        num_workers: 3
+        clip_param: 0.2
+        use_gae: True
