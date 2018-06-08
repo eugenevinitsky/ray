@@ -63,11 +63,14 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
     for key in rollout.data_feudal:
         traj[key] = np.squeeze(np.stack(rollout.data_feudal[key]))
 
+    returns = discount_sum(rollout.data["rewards"], gamma)
     internal_returns_ponctual = compute_internal_rewards(c, traj["s"], traj["g"])
+    internal_returns = discount_sum(internal_returns_ponctual, gamma_internal)
 
     vpred_t_manager = np.append(traj["vf_preds_manager"], [np.array(rollout.last_r)], axis=0)
     vpred_t_worker = np.append(traj["vf_preds_worker"], [np.array(rollout.last_r)], axis=0)
 
+    """
     traj["value_targets_manager"] = traj["rewards"] + gamma * vpred_t_manager[1:]
     delta_t_manager = traj["rewards"] + gamma * vpred_t_manager[1:] - vpred_t_manager[:-1]
     traj["advantages_manager"] = discount(delta_t_manager, gamma * lambda_)
@@ -75,6 +78,13 @@ def process_rollout_Feudal(c, tradeoff_rewards, rollout, reward_filter, gamma, g
     traj["value_targets_worker"] = internal_returns_ponctual + gamma_internal * vpred_t_worker[1:]
     delta_t_worker = traj["rewards"] + gamma_internal * vpred_t_worker[1:] - vpred_t_worker[:-1]
     traj["advantages_worker"] = tradeoff_rewards * discount(delta_t_worker, gamma_internal * lambda_) + traj["advantages_manager"]
+    """
+    traj["value_targets_manager"] = returns
+    traj["advantages_manager"] = returns - vpred_t_worker[:-1]
+
+    traj["value_targets_worker"] = returns + tradeoff_rewards * internal_returns
+    traj["advantages_worker"] = returns - vpred_t_manager[:-1] + \
+                                tradeoff_rewards * (internal_returns  - vpred_t_worker[:-1])
 
     for i in range(traj["advantages_worker"].shape[0]):
         traj["advantages_manager"][i] = reward_filter(traj["advantages_manager"][i])
