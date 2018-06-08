@@ -86,16 +86,14 @@ class ProximalPolicyLoss(object):
                 else:
                     self.value_function = tf.reshape(out_, [-1])
 
-        curr_r_matrix = self.curr_dist.r_matrix(actions)
-        prev_r_matrix = self.prev_dist.r_matrix(actions)
+        #curr_r_matrix = self.curr_dist.r_matrix(actions)
+        #prev_r_matrix = self.prev_dist.r_matrix(actions)
 
         curr_logp = self.curr_dist.logp(actions)
         prev_logp = self.prev_dist.logp(actions)
         self.kl = self.prev_dist.kl(self.curr_dist)
         self.mean_kl = tf.reduce_mean(self.kl)
         self.entropy = self.curr_dist.entropy()
-
-        print("WE USE PPO")
 
         # Make loss functions.
         if ADB:
@@ -146,10 +144,11 @@ class ProximalPolicyLoss(object):
                                              power=1.5)
 
             self.loss = tf.reduce_mean(
-                    - 0.01 * self.surr + kl_coeff * self.kl +
-                    config["vf_loss_coeff"] * self.vf_loss -
-                    0.01 * beta * self.entropy)
-                    
+                    - self.surr
+                    + kl_coeff * self.kl
+                    + config["vf_loss_coeff"] * self.vf_loss
+                    #- beta * self.entropy)
+            )
         else:
             self.mean_vf_loss = tf.constant(0.0)
             self.loss = tf.reduce_mean(0)

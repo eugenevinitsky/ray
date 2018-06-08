@@ -152,10 +152,11 @@ def process_rollout(rollout, reward_filter, gamma, ADB, lambda_=1.0, use_gae=Tru
         else:
             vpred_t = np.stack(rollout.data["vf_preds"] + [np.array(rollout.last_r)]).squeeze()
             delta_t = traj["rewards"] + gamma * vpred_t[1:] - vpred_t[:-1]
-            #traj["advantages"] = discount(delta_t, gamma * lambda_)
-            traj["advantages"] = returns - vpred_t[:-1]
+            traj["advantages"] = discount(delta_t, gamma * lambda_)
+            #traj["advantages"] = returns - vpred_t[:-1]
 
-        traj["value_targets"] = traj["rewards"] + gamma * traj["vf_preds"]
+        traj["value_targets"] = traj["advantages"] + traj["vf_preds"]
+        #traj["value_targets"] = traj["rewards"] + gamma * traj["vf_preds"]
         #traj["value_targets"] = returns
 
     else:
