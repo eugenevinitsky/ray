@@ -244,7 +244,7 @@ def _env_runner(env, policy, num_local_steps, horizon, obs_filter, ADB):
             observation = obs_filter(observation)
 
             length += 1
-            rewards += reward
+            rewards += reward * (0.999**step)
             if length >= horizon:
                 terminal = True
 
