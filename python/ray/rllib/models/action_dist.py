@@ -95,8 +95,8 @@ class DiagGaussian(ActionDistribution):
                              reduction_indices=[1])
 
     def r_matrix(self, x):
-        return tf.exp(-0.5 * (tf.square(x - self.mean)) / tf.square(self.std)) / tf.sqrt(
-            2 * np.pi * tf.square(self.std))
+        return tf.exp(-0.5 * (tf.square(x- self.mean)) / tf.square(self.std)) / tf.sqrt(2 * np.pi * tf.square(self.std))
+
 
     def entropy(self):
         return tf.reduce_sum(self.log_std + .5 * np.log(2.0 * np.pi * np.e),

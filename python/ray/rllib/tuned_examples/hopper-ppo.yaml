@@ -1,6 +1,6 @@
-hopper-ppo:
-    env: Hopper-v2
-    run: PPO
+Reacher_withADB:
+    env: Reacher-v2
+    run: Feudal
     trial_resources:
         cpu: 1
         gpu: 0
@@ -11,7 +11,8 @@ hopper-ppo:
         lambda: 0.95
         kl_coeff: 0
         entropy_coeff: 0
-        vf_loss_coeff: 1.0
+        manager_vf_loss_coeff: 1.0
+        worker_vf_loss_coeff: 1.0
         num_sgd_iter: 10
         sgd_stepsize: 0.0003
         sgd_batchsize: 64
