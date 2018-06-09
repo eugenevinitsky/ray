@@ -1,0 +1,23 @@
+InvertedDoublePendulum:
+    env: InvertedDoublePendulum-v2
+    run: PPO
+    stop: {"training_iteration": 150}
+    trial_resources:
+        cpu: 1
+        gpu: 0
+        extra_cpu: 3
+    config:
+        ADB: False
+        horizon: 2048
+        gamma: 0.99
+        lambda: 0.95
+        kl_coeff: 0
+        entropy_coeff: 0
+        vf_loss_coeff: 1.0
+        num_sgd_iter: 10
+        sgd_stepsize: 0.0003
+        sgd_batchsize: 64
+        timesteps_per_batch: 8142
+        num_workers: 3
+        clip_param: 0.2
+        use_gae: True

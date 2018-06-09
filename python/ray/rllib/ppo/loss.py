@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+import numpy as np
 
 from ray.rllib.models import ModelCatalog
 
@@ -16,12 +17,12 @@ class ProximalPolicyLoss(object):
             self, observation_space, action_space,
             observations, value_targets, advantages, actions,
             prev_logits, prev_vf_preds, logit_dim,
-            kl_coeff, distribution_class, config, sess, registry):
+            kl_coeff, distribution_class, config, sess, registry, ADB):
         self.prev_dist = distribution_class(prev_logits)
-
+        self.ADB = ADB
         # Saved so that we can compute actions given different observations
         self.observations = observations
-
+        self.actions = actions
         policy_config = config["model"].copy()
         self.curr_logits = ModelCatalog.get_model(
             registry, observations, logit_dim, policy_config).outputs
@@ -32,21 +33,39 @@ class ProximalPolicyLoss(object):
         if config["use_gae"]:
             vf_config = config["model"].copy()
             with tf.variable_scope("value_function"):
+                if ADB:
+                    inputs = tf.concat([observations, actions], 1)
+                else:
+                    inputs = observations
+
                 self.value_function = ModelCatalog.get_model(
-                    registry, observations, 1, vf_config).outputs
+                    registry, inputs, 1, vf_config).outputs
             self.value_function = tf.reshape(self.value_function, [-1])
 
         # Make loss functions.
-        self.ratio = tf.exp(self.curr_dist.logp(actions) -
-                            self.prev_dist.logp(actions))
+        if ADB:
+            self.ratio = self.curr_dist.r_matrix(actions) / self.prev_dist.r_matrix(actions)
+        else:
+            self.ratio = tf.exp(self.curr_dist.logp(actions) -
+                                self.prev_dist.logp(actions))
+
         self.kl = self.prev_dist.kl(self.curr_dist)
         self.mean_kl = tf.reduce_mean(self.kl)
         self.entropy = self.curr_dist.entropy()
         self.mean_entropy = tf.reduce_mean(self.entropy)
         self.surr1 = self.ratio * advantages
-        self.surr2 = tf.clip_by_value(self.ratio, 1 - config["clip_param"],
-                                      1 + config["clip_param"]) * advantages
-        self.surr = tf.minimum(self.surr1, self.surr2)
+        if ADB:
+            action_dim = action_space.shape[0]
+            print(action_dim)
+            self.surr2 = tf.clip_by_value(self.ratio, (1 - config["clip_param"])**(1 / action_dim),
+                                          (1 + config["clip_param"])**(1 / action_dim)) * advantages
+            self.surr = tf.reduce_sum(tf.minimum(self.surr1, self.surr2), reduction_indices=[1])
+        else:
+
+            self.surr2 = tf.clip_by_value(self.ratio, 1 - config["clip_param"],
+                                          1 + config["clip_param"]) * advantages
+            self.surr = tf.minimum(self.surr1, self.surr2)
+
         self.mean_policy_loss = tf.reduce_mean(-self.surr)
 
         if config["use_gae"]:
@@ -74,6 +93,7 @@ class ProximalPolicyLoss(object):
         self.sess = sess
 
         if config["use_gae"]:
+
             self.policy_results = [
                 self.sampler, self.curr_logits, self.value_function]
         else:
@@ -81,10 +101,32 @@ class ProximalPolicyLoss(object):
                 self.sampler, self.curr_logits, tf.constant("NA")]
 
     def compute(self, observation):
-        action, logprobs, vf = self.sess.run(
-            self.policy_results,
-            feed_dict={self.observations: [observation]})
+        if self.ADB:
+            action, logprobs = self.sess.run(
+                [self.sampler, self.curr_logits],
+                feed_dict={self.observations: [observation]})
+
+            vf = self.sess.run(
+                self.value_function,
+                feed_dict={self.observations: [observation], self.actions: action})
+        else:
+            action, logprobs, vf = self.sess.run(
+                [self.sampler, self.curr_logits, self.value_function],
+                feed_dict={self.observations: [observation]})
+
         return action[0], {"vf_preds": vf[0], "logprobs": logprobs[0]}
+
+    def compute_Q_fuctions(self, observations, actions):
+        Q_functions = []
+        actions = np.array(actions)
+        means = np.mean(actions, axis=0)
+        for j in range(actions.shape[1]):
+            actions_j = np.copy(actions)
+            actions_j[:, j] = means[j]
+            Q_functions.append(self.sess.run(
+                self.value_function,
+                feed_dict={self.observations: observations, self.actions: actions_j}))
+        return Q_functions
 
     def loss(self):
         return self.loss

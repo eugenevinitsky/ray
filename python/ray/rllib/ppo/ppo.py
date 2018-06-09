@@ -15,6 +15,7 @@ from ray.tune.result import TrainingResult
 from ray.tune.trial import Resources
 from ray.rllib.agent import Agent
 from ray.rllib.utils import FilterManager
+from ray.rllib.utils.log_histogram import log_histogram
 from ray.rllib.ppo.ppo_evaluator import PPOEvaluator
 from ray.rllib.ppo.rollout import collect_samples
 
@@ -87,6 +88,7 @@ DEFAULT_CONFIG = {
     "write_logs": True,
     # Arguments to pass to the env creator
     "env_config": {},
+    "ADB": False
 }
 
 
@@ -105,17 +107,18 @@ class PPOAgent(Agent):
             extra_gpu=cf["num_gpus_per_worker"] * cf["num_workers"])
 
     def _init(self):
+        self.ADB = self.config["ADB"]
         self.global_step = 0
         self.kl_coeff = self.config["kl_coeff"]
         self.local_evaluator = PPOEvaluator(
-            self.registry, self.env_creator, self.config, self.logdir, False)
+            self.registry, self.env_creator, self.config, self.logdir, False, self.ADB)
         RemotePPOEvaluator = ray.remote(
             num_cpus=self.config["num_cpus_per_worker"],
             num_gpus=self.config["num_gpus_per_worker"])(PPOEvaluator)
         self.remote_evaluators = [
             RemotePPOEvaluator.remote(
                 self.registry, self.env_creator, self.config, self.logdir,
-                True)
+                True, self.ADB)
             for _ in range(self.config["num_workers"])]
         self.start_time = time.time()
         if self.config["write_logs"]:
@@ -213,14 +216,21 @@ class PPOAgent(Agent):
                         tag=metric_prefix + "mean_entropy",
                         simple_value=entropy),
                     tf.Summary.Value(
-                        tag=metric_prefix + "mean_loss",
-                        simple_value=loss),
+                        tag=metric_prefix + "policy_loss",
+                        simple_value=policy_loss),
+                    tf.Summary.Value(
+                        tag=metric_prefix + "vf_loss",
+                        simple_value=vf_loss),
                     tf.Summary.Value(
                         tag=metric_prefix + "mean_kl",
                         simple_value=kl)])
                 if self.file_writer:
                     sgd_stats = tf.Summary(value=values)
                     self.file_writer.add_summary(sgd_stats, self.global_step)
+                    weights_loss = model.get_weights()
+                    for key, variable in weights_loss.items():
+                        log_histogram(self.file_writer, key, variable, self.global_step)
+
             self.global_step += 1
             sgd_time += sgd_end - sgd_start
         if kl > 2.0 * config["kl_target"]:
