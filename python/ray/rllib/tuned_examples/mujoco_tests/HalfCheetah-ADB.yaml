@@ -1,8 +1,9 @@
 HalfCheetah-ADB:
     env: HalfCheetah-v2
     run: PPO
-    stop: {"training_iteration": 150}
-    trial_resources:
+    repeat: 3
+    stop: {"training_iteration": 300}
+        trial_resources:
         cpu: 1
         gpu: 0
         extra_cpu: 3

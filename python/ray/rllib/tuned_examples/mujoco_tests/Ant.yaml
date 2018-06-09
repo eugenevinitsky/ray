@@ -1,9 +1,9 @@
-Hopper:
-    env: Hopper-v2
+Ant:
+    env: Ant-v2
     run: PPO
     repeat: 3
     stop: {"training_iteration": 300}
-        trial_resources:
+    trial_resources:
         cpu: 1
         gpu: 0
         extra_cpu: 3

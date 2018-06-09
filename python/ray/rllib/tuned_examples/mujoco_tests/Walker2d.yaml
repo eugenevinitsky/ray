@@ -1,7 +1,8 @@
 Walker2d:
     env: Walker2d-v2
     run: PPO
-    stop: {"training_iteration": 150}
+    repeat: 3
+    stop: {"training_iteration": 300}
     trial_resources:
         cpu: 1
         gpu: 0
