@@ -65,7 +65,8 @@ DEFAULT_CONFIG = {
     "kl_target": 0.01,
     # Model used for the VF approximator
     "model_manager_critic": {"conv_filters": [[16, [8, 8], 4], [32, [4, 4], 2]],
-                             "fcnet_activation": "tanh"},
+                             "fcnet_activation": "tanh",
+                             },
     # Model for the manager
     "model_manager": {"conv_filters": [[16, [8, 8], 4], [32, [4, 4], 2]],
                      "fcnet_activation": "tanh"},

@@ -54,9 +54,14 @@ class ProximalPolicyLoss(object):
                 activation_fn=tf.nn.elu,
                 scope="s")
 
+            print("self.s")
+            print(self.s)
+
+            x = tf.expand_dims(self.s, [0])
+
             with tf.variable_scope("LSTM"):
                 lstm_manager_config = config["model_LTSM_manager"].copy()
-                inputs_lstm_manager = [self.s, self.c_in_manager_input, self.h_in_manager_input]
+                inputs_lstm_manager = [x, self.c_in_manager_input, self.h_in_manager_input]
                 model_manager = ModelCatalog.get_model(
                     registry, inputs_lstm_manager , config["g_dim"], lstm_manager_config)
 
