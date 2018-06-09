@@ -13,6 +13,7 @@ from ray.tune.registry import RLLIB_MODEL, RLLIB_PREPROCESSOR, \
 from ray.rllib.models.action_dist import (
     Categorical, Deterministic, DiagGaussian, MultiActionDistribution)
 from ray.rllib.models.preprocessors import get_preprocessor
+from ray.rllib.models.lstm import LSTM
 from ray.rllib.models.fcnet import FullyConnectedNetwork
 from ray.rllib.models.visionnet import VisionNetwork
 from ray.rllib.models.multiagentfcnet import MultiAgentFullyConnectedNetwork
@@ -137,6 +138,9 @@ class ModelCatalog(object):
         """
 
         if "custom_model" in options:
+            if options["custom_model"] == "LSTM":
+                return LSTM(inputs, num_outputs, options)
+
             model = options["custom_model"]
             print("Using custom model {}".format(model))
             return registry.get(RLLIB_MODEL, model)(
