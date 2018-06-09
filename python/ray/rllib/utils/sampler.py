@@ -235,7 +235,7 @@ def _env_runner(env, policy, num_local_steps, horizon, obs_filter, ADB):
         terminal_end = False
         rollout = PartialRollout(extra_fields=policy.other_output)
 
-        for _ in range(num_local_steps):
+        for step in range(num_local_steps):
             action, pi_info = policy.compute(last_observation, *last_features)
             if policy.is_recurrent:
                 features = pi_info["features"]

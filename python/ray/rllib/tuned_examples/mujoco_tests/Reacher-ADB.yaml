@@ -2,7 +2,7 @@ Reacher-ADB:
     env: Reacher-v2
     run: PPO
     repeat: 3
-    stop: {"training_iteration": 300}
+    stop: {"training_iteration": 150}
     trial_resources:
         cpu: 1
         gpu: 0
