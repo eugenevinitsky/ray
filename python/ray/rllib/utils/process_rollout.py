@@ -11,7 +11,7 @@ def discount(x, gamma):
     return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
 
 
-def process_rollout(rollout, reward_filter, gamma, lambda_=1.0, use_gae=True, ADB=ADB):
+def process_rollout(rollout, reward_filter, gamma, lambda_=1.0, use_gae=True, ADB=False):
     """Given a rollout, compute its value targets and the advantage.
     Args:
         rollout (PartialRollout): Partial Rollout Object
@@ -29,20 +29,18 @@ def process_rollout(rollout, reward_filter, gamma, lambda_=1.0, use_gae=True, AD
         traj[key] = np.stack(rollout.data[key])
 
     if use_gae:
+        vpred_t = np.stack(rollout.data["vf_preds"] + [np.array(rollout.last_r)]).squeeze()
+        delta_t = traj["rewards"] + gamma * vpred_t[1:] - vpred_t[:-1]
+        advantage = discount(delta_t, gamma * lambda_)
         if ADB:
             Q_function = np.transpose(np.array(rollout.Q_function))
             Q_pred_t = np.vstack((Q_function, Q_function[-1]))
             delta_t_multi = traj["rewards"].reshape(-1, 1) + gamma * Q_pred_t[1:] - Q_pred_t[:-1]
             traj["advantages"] = discount(delta_t_multi, gamma * lambda_)
         else:
-            vpred_t = np.stack(rollout.data["vf_preds"] + [np.array(rollout.last_r)]).squeeze()
-            delta_t = traj["rewards"] + gamma * vpred_t[1:] - vpred_t[:-1]
-            traj["advantages"] = discount(delta_t, gamma * lambda_)
-            #traj["advantages"] = returns - vpred_t[:-1]
+            traj["advantages"] = advantage
 
-        traj["value_targets"] = traj["advantages"] + traj["vf_preds"]
-        #traj["value_targets"] = traj["rewards"] + gamma * traj["vf_preds"]
-        #traj["value_targets"] = returns
+        traj["value_targets"] = advantage + traj["vf_preds"]
 
     else:
         rewards_plus_v = np.stack(
