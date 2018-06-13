@@ -28,6 +28,7 @@ Result = namedtuple("Result", [
 
 
 DEFAULT_CONFIG = dict(
+    tradeoff_coeff= 0.5,
     c=10,
     g_dim=16,
     k=16,
@@ -283,10 +284,6 @@ class ESAgent(agent.Agent):
              for index in noise_indices_manager),
             batch_size=500)
         g_manager /= noisy_returns.size
-        assert (
-            g.shape == (self.policy.num_params,) and
-            g.dtype == np.float32 and
-            count == len(noise_indices_manager))
         # Compute the new weights theta.
         theta_manager, update_ratio_manager = self.optimizer_manager.update(
             -g_manager + config["l2_coeff"] * theta_manager)
@@ -300,9 +297,9 @@ class ESAgent(agent.Agent):
             batch_size=500)
         g_worker /= noisy_returns.size
         assert (
-                g.shape == (self.policy.num_params_manager,) and
+                g_manager.shape == (self.policy.num_params_manager,) and
                 g_worker.shape == (self.policy.num_params_worker,) and
-                g.dtype == np.float32 and
+                g_manager.dtype == np.float32 and
                 g_worker.dtype == np.float32 and
                 count == len(noise_indices_manager) and
                 count_worker == len(noise_indices_worker))
@@ -372,9 +369,10 @@ class ESAgent(agent.Agent):
     def _save(self, checkpoint_dir):
         checkpoint_path = os.path.join(
             checkpoint_dir, "checkpoint-{}".format(self.iteration))
-        weights = self.policy.get_weights()
+        weights_manager = self.policy.get_weights_manager()
+        weights_worker = self.policy.get_weights_worker()
         objects = [
-            weights,
+            weights_manager, weights_worker,
             self.episodes_so_far,
             self.timesteps_so_far]
         pickle.dump(objects, open(checkpoint_path, "wb"))
