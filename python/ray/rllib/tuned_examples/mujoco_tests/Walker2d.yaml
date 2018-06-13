@@ -3,6 +3,7 @@ Walker2d:
     run: PPO
     repeat: 3
     stop: {"training_iteration": 300}
+    checkpoint_freq: 25
     trial_resources:
         cpu: 1
         gpu: 0

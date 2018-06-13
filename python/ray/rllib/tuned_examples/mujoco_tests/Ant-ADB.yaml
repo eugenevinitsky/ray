@@ -1,6 +1,7 @@
 Ant-ADB:
     env: Ant-v2
     run: PPO
+    checkpoint_freq: 25
     repeat: 3
     stop: {"training_iteration": 300}
     trial_resources:

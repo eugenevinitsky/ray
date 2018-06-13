@@ -90,22 +90,6 @@ class FeudalEvaluator(PolicyEvaluator):
         self.z_carried = tf.placeholder(tf.float32, (None, config["z_dimension"]))
 
 
-        self.c_in_manager_input = tf.placeholder(tf.float32,
-                              shape=(None, config["g_dim"]),
-                              name='c_in_manager')
-
-        self.h_in_manager_input = tf.placeholder(tf.float32,
-                              shape=(None, config["g_dim"]),
-                              name='h_in_manager')
-
-        self.c_in_worker_input = tf.placeholder(tf.float32,
-                                           shape=(None, self.logit_dim * config['k']),
-                                           name='c_in_worker')
-
-        self.h_in_worker_input = tf.placeholder(tf.float32,
-                                           shape=(None, self.logit_dim * config['k']),
-                                           name='h_in_worker')
-
         if is_remote:
             self.batch_size = config["rollout_batchsize"]
             self.per_device_batch_size = config["rollout_batchsize"]
@@ -116,13 +100,11 @@ class FeudalEvaluator(PolicyEvaluator):
             self.per_device_batch_size = int(self.batch_size / len(devices))
 
         def build_loss(obs, vtargets_manager, vtargets_worker, advs_manager, advs_worker,  acts, plog,
-                       prev_manager_vf_preds, prev_worker_vf_preds, s_diff, g_sum, z,
-                       c_in_manager, h_in_manager, c_in_worker, h_in_worker):
+                       prev_manager_vf_preds, prev_worker_vf_preds, s_diff, g_sum, z):
             return ProximalPolicyLoss(
                 self.env.observation_space, self.env.action_space,
                 obs, vtargets_manager, vtargets_worker, advs_manager, advs_worker, acts, plog,
                 prev_manager_vf_preds, prev_worker_vf_preds, s_diff, g_sum, z,
-                c_in_manager, h_in_manager, c_in_worker, h_in_worker,
                 self.logit_dim,
                 self.kl_coeff, self.distribution_class, self.config,
                 self.sess, self.registry)
@@ -133,8 +115,7 @@ class FeudalEvaluator(PolicyEvaluator):
             [self.observations, self.value_targets_manager, self.value_targets_worker,
              self.advantages_manager, self.advantages_worker,
              self.actions, self.prev_logits, self.prev_manager_vf_preds, self.prev_worker_vf_preds,
-             self.s_diff, self.g_sum, self.z_carried, self.c_in_manager_input, self.h_in_manager_input,
-             self.c_in_worker_input, self.h_in_worker_input],
+             self.s_diff, self.g_sum, self.z_carried],
             self.per_device_batch_size,
             build_loss,
             self.logdir)
@@ -170,7 +151,7 @@ class FeudalEvaluator(PolicyEvaluator):
             self.common_policy.loss, self.sess)
         self.obs_filter = get_filter(
             config["observation_filter"], self.env.observation_space.shape)
-        self.rew_filter = MeanStdFilter((), clip=5.0)
+        self.rew_filter = MeanStdFilter((), clip=1.0)
         self.filters = {"obs_filter": self.obs_filter,
                         "rew_filter": self.rew_filter}
         self.sampler = SyncSampler_Feudal(
@@ -190,13 +171,9 @@ class FeudalEvaluator(PolicyEvaluator):
              trajectories["logprobs"],
              trajectories["manager_vf_preds"],
              trajectories["worker_vf_preds"],
-             trajectories["s_diff"],
-             trajectories["g_sum"],
-             trajectories["z_carried"],
-             trajectories["c_in_manager_input"],
-             trajectories["h_in_manager_input"],
-             trajectories["c_in_worker_input"],
-             trajectories["h_in_worker_input"]
+             trajectories["diff"],
+             trajectories["gsum"],
+             trajectories["z_carried"]
              ],
             full_trace=full_trace)
 

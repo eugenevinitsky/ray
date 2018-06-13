@@ -21,12 +21,18 @@ from ray.rllib.es import utils
 
 
 Result = namedtuple("Result", [
-    "noise_indices", "noisy_returns", "sign_noisy_returns", "noisy_lengths",
-    "eval_returns", "eval_lengths"
+    "noise_indices_managers", "noise_indices_worker", "noisy_returns", "noisy_internal_returns",
+    "sign_noisy_returns", "sign_noisy_internal_returns", "noisy_lengths", "eval_returns", "eval_lengths"
 ])
 
 
+
 DEFAULT_CONFIG = dict(
+    c=10,
+    g_dim=16,
+    k=16,
+    z_dimension=256,
+    hidden_goal_designer={"hiddens": [64, 64], "activation":"tanh"},
     l2_coeff=0.005,
     noise_stdev=0.02,
     episodes_per_batch=1000,
@@ -75,59 +81,73 @@ class Worker(object):
             registry, self.env)
 
         self.sess = utils.make_session(single_threaded=True)
-        self.policy = policies.GenericPolicy(
-            registry, self.sess, self.env.action_space, self.preprocessor,
-            config["observation_filter"], **policy_params)
+        self.policy = policies.HRLPolicy(config,
+            registry, self.sess, self.env.action_space, self.preprocessor, **policy_params)
+
 
     def rollout(self, timestep_limit, add_noise=True):
-        rollout_rewards, rollout_length = policies.rollout(
-            self.policy, self.env, timestep_limit=timestep_limit,
-            add_noise=add_noise)
-        return rollout_rewards, rollout_length
+        rollout_rewards, rollout_internal_rewards, rollout_length = policies.rollout(
+            self.config, self.policy, self.env, timestep_limit=timestep_limit, add_noise=add_noise)
+        return rollout_rewards, rollout_internal_rewards, rollout_length
 
-    def do_rollouts(self, params, timestep_limit=None):
+    def do_rollouts(self, params_manager, params_worker, timestep_limit=None):
         # Set the network weights.
-        self.policy.set_weights(params)
+        self.policy.set_weights_manager(params_manager)
+        self.policy.set_weights_worker(params_worker)
 
-        noise_indices, returns, sign_returns, lengths = [], [], [], []
+        noise_indices_manager, noise_indices_worker, returns, internal_returns, \
+        sign_returns, sign_internal_returns, lengths = [], [], [], [], [], [], []
         eval_returns, eval_lengths = [], []
 
         # Perform some rollouts with noise.
         task_tstart = time.time()
-        while (len(noise_indices) == 0 or
+        while (len(noise_indices_manager) == 0 or
                time.time() - task_tstart < self.min_task_runtime):
 
             if np.random.uniform() < self.config["eval_prob"]:
                 # Do an evaluation run with no perturbation.
-                self.policy.set_weights(params)
-                rewards, length = self.rollout(timestep_limit, add_noise=False)
+                self.policy.set_weights_manager(params_manager)
+                self.policy.set_weights_worker(params_worker)
+
+                rewards, internal_rewards, length = self.rollout(timestep_limit, add_noise=False)
                 eval_returns.append(rewards.sum())
                 eval_lengths.append(length)
             else:
                 # Do a regular run with parameter perturbations.
-                noise_index = self.noise.sample_index(self.policy.num_params)
+                noise_index_manager = self.noise.sample_index(self.policy.num_params_manager)
+                noise_index_worker = self.noise.sample_index(self.policy.num_params_worker)
 
-                perturbation = self.config["noise_stdev"] * self.noise.get(
-                    noise_index, self.policy.num_params)
+                perturbation_manager = self.config["noise_stdev"] * self.noise.get(
+                    noise_index_manager, self.policy.num_params_manager)
+                perturbation_worker = self.config["noise_stdev"] * self.noise.get(
+                    noise_index_worker, self.policy.num_params_worker)
 
-                # These two sampling steps could be done in parallel on
-                # different actors letting us update twice as frequently.
-                self.policy.set_weights(params + perturbation)
-                rewards_pos, lengths_pos = self.rollout(timestep_limit)
+                self.policy.set_weights_manager(params_manager + perturbation_manager)
+                self.policy.set_weights_worker(params_worker + perturbation_worker)
+                rewards_pos, internal_rewards_pos, lengths_pos = self.rollout(timestep_limit)
 
-                self.policy.set_weights(params - perturbation)
-                rewards_neg, lengths_neg = self.rollout(timestep_limit)
+                self.policy.set_weights_manager(params_manager - perturbation_manager)
+                self.policy.set_weights_worker(params_worker - perturbation_worker)
+                rewards_neg, internal_rewards_neg, lengths_neg = self.rollout(timestep_limit)
 
-                noise_indices.append(noise_index)
+                noise_indices_manager.append(noise_index_manager)
+                noise_indices_worker.append(noise_index_worker)
                 returns.append([rewards_pos.sum(), rewards_neg.sum()])
+                internal_returns.append([internal_rewards_pos.sum(), internal_rewards_neg.sum()])
+
                 sign_returns.append(
                     [np.sign(rewards_pos).sum(), np.sign(rewards_neg).sum()])
+                sign_internal_returns.append(
+                    [np.sign(internal_rewards_pos).sum(), np.sign(internal_rewards_neg).sum()])
                 lengths.append([lengths_pos, lengths_neg])
 
         return Result(
-            noise_indices=noise_indices,
+            noise_indices_managers=noise_indices_manager,
+            noise_indices_worker=noise_indices_worker,
             noisy_returns=returns,
+            noisy_internal_returns=internal_returns,
             sign_noisy_returns=sign_returns,
+            sign_noisy_internal_returns=sign_internal_returns,
             noisy_lengths=lengths,
             eval_returns=eval_returns,
             eval_lengths=eval_lengths)
@@ -149,10 +169,11 @@ class ESAgent(agent.Agent):
             self.registry, env)
 
         self.sess = utils.make_session(single_threaded=False)
-        self.policy = policies.GenericPolicy(
-            self.registry, self.sess, env.action_space, preprocessor,
-            self.config["observation_filter"], **policy_params)
-        self.optimizer = optimizers.Adam(self.policy, self.config["stepsize"])
+        self.policy = policies.HRLPolicy(
+            self.config, self.registry, self.sess, env.action_space, preprocessor, **policy_params)
+        self.optimizer_manager = optimizers.Adam(self.policy.get_weights_manager(), self.policy.num_params_manager, self.config["stepsize"])
+        self.optimizer_worker = optimizers.Adam(self.policy.get_weights_worker(), self.policy.num_params_worker,
+                                                 self.config["stepsize"])
 
         # Create the shared noise table.
         print("Creating shared noise table.")
@@ -171,14 +192,14 @@ class ESAgent(agent.Agent):
         self.timesteps_so_far = 0
         self.tstart = time.time()
 
-    def _collect_results(self, theta_id, min_episodes, min_timesteps):
+    def _collect_results(self, theta_id_manager, theta_id_worker, min_episodes, min_timesteps):
         num_episodes, num_timesteps = 0, 0
         results = []
         while num_episodes < min_episodes or num_timesteps < min_timesteps:
             print(
                 "Collected {} episodes {} timesteps so far this iter".format(
                     num_episodes, num_timesteps))
-            rollout_ids = [worker.do_rollouts.remote(theta_id)
+            rollout_ids = [worker.do_rollouts.remote(theta_id_manager, theta_id_worker)
                            for worker in self.workers]
             # Get the results of the rollouts.
             for result in ray.get(rollout_ids):
@@ -196,20 +217,24 @@ class ESAgent(agent.Agent):
         config = self.config
 
         step_tstart = time.time()
-        theta = self.policy.get_weights()
-        assert theta.dtype == np.float32
+        theta_manager = self.policy.get_weights_manager()
+        theta_worker = self.policy.get_weights_worker()
+        assert theta_manager.dtype == np.float32 and theta_worker.dtype == np.float32
 
         # Put the current policy weights in the object store.
-        theta_id = ray.put(theta)
+        theta_id_manager = ray.put(theta_manager)
+        theta_id_worker = ray.put(theta_worker)
         # Use the actors to do rollouts, note that we pass in the ID of the
         # policy weights.
         results, num_episodes, num_timesteps = self._collect_results(
-            theta_id,
+            theta_id_manager, theta_id_worker,
             config["episodes_per_batch"],
             config["timesteps_per_batch"])
 
-        all_noise_indices = []
+        all_noise_indices_manager = []
+        all_noise_indices_worker = []
         all_training_returns = []
+        all_training_internal_returns = []
         all_training_lengths = []
         all_eval_returns = []
         all_eval_lengths = []
@@ -219,13 +244,15 @@ class ESAgent(agent.Agent):
             all_eval_returns += result.eval_returns
             all_eval_lengths += result.eval_lengths
 
-            all_noise_indices += result.noise_indices
+            all_noise_indices_manager += result.noise_indices_managers
+            all_noise_indices_worker += result.noise_indices_worker
             all_training_returns += result.noisy_returns
+            all_training_internal_returns += result.noisy_internal_returns
             all_training_lengths += result.noisy_lengths
 
         assert len(all_eval_returns) == len(all_eval_lengths)
-        assert (len(all_noise_indices) == len(all_training_returns) ==
-                len(all_training_lengths))
+        assert (len(all_noise_indices_manager) == len(all_noise_indices_worker) == len(all_training_returns) ==
+                len(all_training_internal_returns) == len(all_training_lengths))
 
         self.episodes_so_far += num_episodes
         self.timesteps_so_far += num_timesteps
@@ -233,32 +260,60 @@ class ESAgent(agent.Agent):
         # Assemble the results.
         eval_returns = np.array(all_eval_returns)
         eval_lengths = np.array(all_eval_lengths)
-        noise_indices = np.array(all_noise_indices)
+        noise_indices_manager = np.array(all_noise_indices_manager)
+        noise_indices_worker = np.array(all_noise_indices_worker)
         noisy_returns = np.array(all_training_returns)
+        noisy_internal_returns = np.array(all_training_internal_returns)
         noisy_lengths = np.array(all_training_lengths)
 
         # Process the returns.
         if config["return_proc_mode"] == "centered_rank":
             proc_noisy_returns = utils.compute_centered_ranks(noisy_returns)
+            proc_noisy_internal_returns = utils.compute_centered_ranks(noisy_internal_returns)
+            tradeoff_returns = proc_noisy_returns + config["tradeoff_coeff"] * proc_noisy_internal_returns
         else:
             raise NotImplementedError(config["return_proc_mode"])
 
         # Compute and take a step.
-        g, count = utils.batched_weighted_sum(
+
+        """Manager"""
+        g_manager, count = utils.batched_weighted_sum(
             proc_noisy_returns[:, 0] - proc_noisy_returns[:, 1],
-            (self.noise.get(index, self.policy.num_params)
-             for index in noise_indices),
+            (self.noise.get(index, self.policy.num_params_manager)
+             for index in noise_indices_manager),
             batch_size=500)
-        g /= noisy_returns.size
+        g_manager /= noisy_returns.size
         assert (
             g.shape == (self.policy.num_params,) and
             g.dtype == np.float32 and
-            count == len(noise_indices))
+            count == len(noise_indices_manager))
         # Compute the new weights theta.
-        theta, update_ratio = self.optimizer.update(
-            -g + config["l2_coeff"] * theta)
+        theta_manager, update_ratio_manager = self.optimizer_manager.update(
+            -g_manager + config["l2_coeff"] * theta_manager)
+
+
+        """Worker"""
+        g_worker, count_worker = utils.batched_weighted_sum(
+            tradeoff_returns[:, 0] - tradeoff_returns[:, 1],
+            (self.noise.get(index, self.policy.num_params_worker)
+             for index in noise_indices_worker),
+            batch_size=500)
+        g_worker /= noisy_returns.size
+        assert (
+                g.shape == (self.policy.num_params_manager,) and
+                g_worker.shape == (self.policy.num_params_worker,) and
+                g.dtype == np.float32 and
+                g_worker.dtype == np.float32 and
+                count == len(noise_indices_manager) and
+                count_worker == len(noise_indices_worker))
+        # Compute the new weights theta.
+        theta_worker, update_ratio_worker = self.optimizer_worker.update(
+            -g_worker + config["l2_coeff"] * theta_worker)
+
+
         # Set the new weights in the local copy of the policy.
-        self.policy.set_weights(theta)
+        self.policy.set_weights_manager(theta_manager)
+        self.policy.set_weights_worker(theta_worker)
 
         step_tend = time.time()
         tlogger.record_tabular("EvalEpRewMean", eval_returns.mean())
@@ -269,9 +324,13 @@ class ESAgent(agent.Agent):
         tlogger.record_tabular("EpRewStd", noisy_returns.std())
         tlogger.record_tabular("EpLenMean", noisy_lengths.mean())
 
-        tlogger.record_tabular("Norm", float(np.square(theta).sum()))
-        tlogger.record_tabular("GradNorm", float(np.square(g).sum()))
-        tlogger.record_tabular("UpdateRatio", float(update_ratio))
+        tlogger.record_tabular("Norm_manager", float(np.square(theta_manager).sum()))
+        tlogger.record_tabular("GradNorm_manager", float(np.square(g_manager).sum()))
+        tlogger.record_tabular("UpdateRatio_manager", float(update_ratio_manager))
+
+        tlogger.record_tabular("Norm_worker", float(np.square(theta_worker).sum()))
+        tlogger.record_tabular("GradNorm_worker", float(np.square(g_worker).sum()))
+        tlogger.record_tabular("UpdateRatio_worker", float(update_ratio_worker))
 
         tlogger.record_tabular("EpisodesThisIter", noisy_lengths.size)
         tlogger.record_tabular("EpisodesSoFar", self.episodes_so_far)
@@ -283,9 +342,12 @@ class ESAgent(agent.Agent):
         tlogger.dump_tabular()
 
         info = {
-            "weights_norm": np.square(theta).sum(),
-            "grad_norm": np.square(g).sum(),
-            "update_ratio": update_ratio,
+            "weights_norm_manager": np.square(theta_manager).sum(),
+            "weights_norm_worker": np.square(theta_worker).sum(),
+            "grad_norm_manager": np.square(g_manager).sum(),
+            "grad_norm_worker": np.square(g_worker).sum(),
+            "update_ratio_manager": update_ratio_manager,
+            "update_ratio_worker": update_ratio_worker,
             "episodes_this_iter": noisy_lengths.size,
             "episodes_so_far": self.episodes_so_far,
             "timesteps_this_iter": noisy_lengths.sum(),

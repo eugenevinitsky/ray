@@ -66,16 +66,16 @@ DEFAULT_CONFIG = {
     # Model used for the VF approximator
     "model_manager_critic": {"conv_filters": [[16, [8, 8], 4], [32, [4, 4], 2]],
                              "fcnet_activation": "tanh",
+                            "fcnet_hiddens": [64, 64]
                              },
     # Model for the manager
-    "model_manager": {"conv_filters": [[16, [8, 8], 4], [32, [4, 4], 2]],
-                     "fcnet_activation": "tanh"},
+    "model_manager": {"conv_filters": [[16, [8, 8], 4], [32, [4, 4], 2]],  "fcnet_activation": "tanh", "fcnet_hiddens": [64, 64]},
     # Model used for the worker VF approximator
     "model_worker_critic": {"fcnet_hiddens": [64, 64], "fcnet_activation": "tanh"},
     # Model for the LSTM usde in the worker
-    "model_LTSM_worker": {"custom_model": "LSTM", "final_layer": True},
+    "model_goal_embedding_worker": {"fcnet_hiddens": [64, 64], "fcnet_activation": "tanh"},
     # Model for the LSTM usde in the manager
-    "model_LTSM_manager": {"custom_model": "LSTM", "final_layer": True},
+    "model_goal_designer_manager": {"fcnet_hiddens": [64, 64], "fcnet_activation": "tanh", "free_log_std": False},
     "z_dimension": 256,
     "c": 10,
     "g_dim": 16,
@@ -181,8 +181,8 @@ class FeudalAgent(Agent):
         print("Computing policy (iterations=" + str(config["num_sgd_iter"]) +
               ", stepsize=" + str(config["sgd_stepsize"]) + "):")
         names = [
-            "iter", "total loss", "MANAGER policy loss ", "MANAGER vf loss", "WORKER policy loss ",
-            "WORKER vf loss", "kl", "entropy"]
+            "iter", "total loss", "Manager policy", "Manager vf", "Worker policy",
+            "Worker vf", "kl", "entropy"]
         print(("{:>15}" * len(names)).format(*names))
         samples.shuffle()
         shuffle_end = time.time()
@@ -201,9 +201,13 @@ class FeudalAgent(Agent):
             loss, manager_policy_loss, manager_vf_loss, worker_policy_loss, worker_vf_loss, kl, entropy = [], [], [], [], [], [], []
             permutation = np.random.permutation(num_batches)
             # Prepare to drop into the debugger
+            print("num_batches")
+            print(num_batches)
             if self.iteration == config["tf_debug_iteration"]:
                 model.sess = tf_debug.LocalCLIDebugWrapperSession(model.sess)
             while batch_index < num_batches:
+                print("batch_index")
+                print(batch_index)
                 full_trace = (
                     i == 0 and self.iteration == 0 and
                     batch_index == config["full_trace_nth_sgd_batch"])

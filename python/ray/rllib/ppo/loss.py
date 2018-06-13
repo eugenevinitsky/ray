@@ -24,6 +24,7 @@ class ProximalPolicyLoss(object):
         self.observations = observations
         self.actions = actions
         policy_config = config["model"].copy()
+        #policy_config["free_log_std"] = True
         self.curr_logits = ModelCatalog.get_model(
             registry, observations, logit_dim, policy_config).outputs
         self.curr_dist = distribution_class(self.curr_logits)
@@ -55,10 +56,8 @@ class ProximalPolicyLoss(object):
         self.mean_entropy = tf.reduce_mean(self.entropy)
         self.surr1 = self.ratio * advantages
         if ADB:
-            action_dim = action_space.shape[0]
-            print(action_dim)
-            self.surr2 = tf.clip_by_value(self.ratio, (1 - config["clip_param"])**(1 / action_dim),
-                                          (1 + config["clip_param"])**(1 / action_dim)) * advantages
+            self.surr2 = tf.clip_by_value(self.ratio, (1 - config["clip_param"])**(1 / logit_dim),
+                                          (1 + config["clip_param"])**(1 / logit_dim)) * advantages
             self.surr = tf.reduce_sum(tf.minimum(self.surr1, self.surr2), reduction_indices=[1])
         else:
 

@@ -2,6 +2,7 @@ InvertedDoublePendulum:
     env: InvertedDoublePendulum-v2
     run: PPO
     repeat: 2
+    checkpoint_freq: 25
     stop: {"training_iteration": 300}
     trial_resources:
         cpu: 1

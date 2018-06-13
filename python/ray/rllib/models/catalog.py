@@ -137,16 +137,16 @@ class ModelCatalog(object):
             model (Model): Neural network model.
         """
 
+        obs_rank = len(inputs.shape) - 1
+
         if "custom_model" in options:
-            if options["custom_model"] == "LSTM":
-                return LSTM(inputs, num_outputs, options)
 
             model = options["custom_model"]
             print("Using custom model {}".format(model))
             return registry.get(RLLIB_MODEL, model)(
                 inputs, num_outputs, options)
 
-        obs_rank = len(inputs.shape) - 1
+
 
         # num_outputs > 1 used to avoid hitting this with the value function
         if isinstance(options.get("custom_options", {}).get(

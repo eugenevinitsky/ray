@@ -88,7 +88,8 @@ DEFAULT_CONFIG = {
     "write_logs": True,
     # Arguments to pass to the env creator
     "env_config": {},
-    "ADB": False
+    "ADB": False,
+    "restore_path": None
 }
 
 

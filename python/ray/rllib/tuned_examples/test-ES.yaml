@@ -1,0 +1,12 @@
+Reacher_withADB:
+    env: Alien-v0
+    #env: Reacher-v2
+    run: ES
+    checkpoint_freq: 1
+    trial_resources:
+        cpu: 1
+        gpu: 0
+        extra_cpu: 3
+    config:
+      num_workers: 3
+

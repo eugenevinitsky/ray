@@ -7,7 +7,7 @@
 #
 pong-deterministic-ppo:
     env: PongDeterministic-v4
-    run: PPO
+    run: Feudal
     trial_resources:
         cpu: 1
         gpu: 1

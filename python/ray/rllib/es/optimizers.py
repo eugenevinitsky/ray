@@ -9,17 +9,16 @@ import numpy as np
 
 
 class Optimizer(object):
-    def __init__(self, pi):
-        self.pi = pi
-        self.dim = pi.num_params
+    def __init__(self, weights, num_params):
+        self.weights = weights
+        self.dim = num_params
         self.t = 0
 
     def update(self, globalg):
         self.t += 1
         step = self._compute_step(globalg)
-        theta = self.pi.get_weights()
-        ratio = np.linalg.norm(step) / np.linalg.norm(theta)
-        return theta + step, ratio
+        ratio = np.linalg.norm(step) / np.linalg.norm(self.weights)
+        return self.weights + step, ratio
 
     def _compute_step(self, globalg):
         raise NotImplementedError
@@ -38,8 +37,8 @@ class SGD(Optimizer):
 
 
 class Adam(Optimizer):
-    def __init__(self, pi, stepsize, beta1=0.9, beta2=0.999, epsilon=1e-08):
-        Optimizer.__init__(self, pi)
+    def __init__(self, weights, num_params, stepsize, beta1=0.9, beta2=0.999, epsilon=1e-08):
+        Optimizer.__init__(self, weights, num_params)
         self.stepsize = stepsize
         self.beta1 = beta1
         self.beta2 = beta2

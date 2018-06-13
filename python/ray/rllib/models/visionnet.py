@@ -8,6 +8,7 @@ import tensorflow.contrib.slim as slim
 from ray.rllib.models.model import Model
 from ray.rllib.models.misc import normc_initializer
 
+import numpy as np
 
 class VisionNetwork(Model):
 
@@ -22,11 +23,6 @@ class VisionNetwork(Model):
             label_ouput = "z"
         else:
             label_ouput = "vf"
-
-        print("those are the filters")
-        print(filters)
-        print("label_output")
-        print(label_ouput)
 
 
         if fcnet_activation == "tanh":
@@ -43,8 +39,7 @@ class VisionNetwork(Model):
             fc1 = slim.conv2d(
                 inputs, out_size, kernel, stride, padding="VALID", scope="fc1")
 
-            last_layer = tf.squeeze(fc1, [1, 2])
-
+            last_layer = tf.reshape(fc1, [-1, np.prod(fc1.get_shape().as_list()[1:])])
 
             return slim.fully_connected(
                 last_layer, num_outputs,

@@ -86,46 +86,6 @@ class PartialRollout(object):
 CompletedRollout = namedtuple("CompletedRollout",
                               ["episode_length", "episode_reward"])
 
-
-class SyncSampler(object):
-    """This class interacts with the environment and tells it what to do.
-
-    Note that batch_size is only a unit of measure here. Batches can
-    accumulate and the gradient can be calculated on up to 5 batches.
-
-    This class provides data on invocation, rather than on a separate
-    thread."""
-    _async = False
-
-    def __init__(self, env, policy, obs_filter, num_local_steps, horizon=None, ADB=False):
-        self.num_local_steps = num_local_steps
-        self.horizon = horizon
-        self.env = env
-        self.policy = policy
-        self._obs_filter = obs_filter
-        self.rollout_provider = _env_runner(self.env, self.policy,
-                                            self.num_local_steps, self.horizon,
-                                            self._obs_filter, ADB)
-        self.metrics_queue = queue.Queue()
-
-    def get_data(self):
-        while True:
-            item = next(self.rollout_provider)
-            if isinstance(item, CompletedRollout):
-                self.metrics_queue.put(item)
-            else:
-                return item
-
-    def get_metrics(self):
-        completed = []
-        while True:
-            try:
-                completed.append(self.metrics_queue.get_nowait())
-            except queue.Empty:
-                break
-        return completed
-
-
 class AsyncSampler(threading.Thread):
     """This class interacts with the environment and tells it what to do.
 
@@ -333,8 +293,7 @@ class PartialRollout_Feudal(object):
     """
 
     fields = ["obs", "actions", "rewards", "new_obs", "dones", "features"]
-    fields_feudal = ["manager_vf_preds", "worker_vf_preds", "logprobs", "z_carried", "s", "g", "c_in_manager_input",
-             "h_in_manager_input", "c_in_worker_input", "h_in_worker_input"]
+    fields_feudal = ["manager_vf_preds", "worker_vf_preds", "logprobs", "z_carried", "s", "g"]
 
     def __init__(self, extra_fields=None):
         """Initializers internals. Maintains a `last_r` field
@@ -465,12 +424,9 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filters, confi
     current_image = obs_filters(env.reset())
     prev_image = current_image.copy()
     last_observation = current_image - prev_image
-
-    c_in_manager_input = np.zeros((1, config["g_dim"]), np.float32)
-    h_in_manager_input = np.zeros((1, config["g_dim"]), np.float32)
-
-    c_in_worker_input = np.zeros((1, policy.action_dim * config["k"]), np.float32)
-    h_in_worker_input = np.zeros((1, policy.action_dim * config["k"]), np.float32)
+    """
+    last_observation = obs_filters(env.reset())
+    """
 
     try:
         horizon = horizon if horizon else env.spec.max_episode_steps
@@ -489,16 +445,15 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filters, confi
     g_s = 0
     while True:
         terminal_end = False
-        rollout = PartialRollout_Feudal()
+        rollout = PartialRollout_Feudal(extra_fields=policy.other_output)
 
         for step in range(num_local_steps):
+            z, s, g, vfm = policy.compute_manager(last_observation, *last_features)
 
-            action, pi_info = policy.compute(last_observation, *last_features)
-            z, s, g, c_in_manager_input, h_in_manager_input, \
-            vfm = policy.compute_manager(last_observation, c_in_manager_input, h_in_manager_input,  *last_features)
-
+            """
             if np.random.rand() < config["epsilon"]:
                 g = np.random.normal(loc=0.0, scale=1.0, size=g.shape)
+            """
 
             if step == 0:
                 g_s = np.array([g])
@@ -508,22 +463,13 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filters, confi
                 g_sum = g_s.sum(axis=0)
             else:
                 g_s = np.append(g_s, [g], axis=0)
-                print("len of g_sum")
-                print(g_sum)
                 g_sum = g_s[-(c+1):].sum(axis=0)
 
-            action, c_in_worker_input, h_in_worker_input, logprobs, \
-            vfw = policy.compute_worker(z, g_sum, c_in_worker_input, h_in_worker_input)
-            if policy.is_recurrent:
-                features = pi_info["features"]
-                del pi_info["features"]
+            action, logprobs, vfw = policy.compute_worker(z, g_sum)
             observation, reward, terminal, info = env.step(action)
             observation = obs_filters(observation)
 
-            prev_image = current_image.copy()
-            current_image = observation.copy()
 
-            last_observation = current_image - prev_image
 
             length += 1
             rewards += reward
@@ -541,21 +487,23 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filters, confi
                 rewards=reward,
                 dones=terminal,
                 features=last_features,
-                new_obs=observation,
-                **pi_info)
+                new_obs=observation)
             rollout.add_Feudal(manager_vf_preds=vfm,
                                worker_vf_preds=vfw,
                                logprobs=logprobs,
                                z_carried=z,
                                s=s,
-                               g=g,
-                               c_in_manager_input=c_in_manager_input,
-                               h_in_manager_input=h_in_manager_input,
-                               c_in_worker_input=c_in_worker_input,
-                               h_in_worker_input=h_in_worker_input,
-            )
+                               g=g)
 
+
+
+            prev_image = current_image.copy()
+            current_image = observation.copy()
+            last_observation = current_image - prev_image
+            """
             last_observation = observation
+            """
+
             last_features = features
 
             if terminal:
@@ -564,9 +512,14 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filters, confi
 
                 if (length >= horizon
                         or not env.metadata.get("semantics.autoreset")):
+
+
                     current_image = obs_filters(env.reset())
                     prev_image = current_image.copy()
                     last_observation = current_image - prev_image
+                    """
+                    last_observation = obs_filters(env.reset())
+                    """
                     if hasattr(policy, "get_initial_features"):
                         last_features = policy.get_initial_features()
                     else:
@@ -574,10 +527,6 @@ def _env_runner_Feudal(env, policy, num_local_steps, horizon, obs_filters, confi
                     rollout_number += 1
                     length = 0
                     rewards = 0
-                    c_in_manager_input = np.zeros((1, config["g_dim"]), np.float32)
-                    h_in_manager_input = np.zeros((1, config["g_dim"]), np.float32)
-                    c_in_worker_input = np.zeros((1, policy.action_dim * config["k"]), np.float32)
-                    h_in_worker_input = np.zeros((1, policy.action_dim * config["k"]), np.float32)
                     g_s = 0
                     break
 
