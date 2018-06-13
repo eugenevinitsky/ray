@@ -9,4 +9,5 @@ Reacher_withADB:
         extra_cpu: 3
     config:
       num_workers: 3
+      episodes_per_batch: 1
 
