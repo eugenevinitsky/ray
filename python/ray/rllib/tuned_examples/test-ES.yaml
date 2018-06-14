@@ -6,8 +6,23 @@ Reacher_withADB:
     trial_resources:
         cpu: 1
         gpu: 0
-        extra_cpu: 3
+        extra_cpu: 59
     config:
-      num_workers: 3
-      episodes_per_batch: 1
+      num_workers: 59
+      episodes_per_batch: 60
+      timesteps_per_batch: 60000
+      tradeoff_coeff: 0.5
+      c: 10
+      g_dim: 16
+      k: 16
+      z_dimension: 256
+      hidden_goal_designer: {"hiddens": [64, 64], "activation":"tanh"}
+      l2_coeff: 0.005
+      noise_stdev: 0.02
+      eval_prob: 0.003
+      return_proc_mode: "centered_rank"
+      stepsize: 0.01:
+      observation_filter: "MeanStdFilter"
+      noise_size: 250000000
+      env_config: {}
 
