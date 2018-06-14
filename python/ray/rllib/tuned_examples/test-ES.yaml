@@ -1,0 +1,19 @@
+TEST-ES:
+    env: Alien-v0
+    run: ES
+    trial_resources:
+        cpu: 1
+        gpu: 0
+        extra_cpu: 59
+    config:
+        l2_coeff: 0.005
+        noise_stdev: 0.02
+        episodes_per_batch: 60
+        timesteps_per_batch: 60000
+        eval_prob: 0.003
+        return_proc_mode: centered_rank
+        num_workers: 59
+        stepsize: 0.01
+        observation_filter: "MeanStdFilter"
+        noise_size: 250000000
+        env_config: {}
