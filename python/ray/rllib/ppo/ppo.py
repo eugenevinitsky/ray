@@ -34,7 +34,8 @@ DEFAULT_CONFIG = {
     # Initial coefficient for KL divergence
     "kl_coeff": 0.2,
     # Number of SGD iterations in each outer loop
-    "num_sgd_iter": 30,
+    "num_sgd_iter_policy": 30,
+    "num_sgd_iter_vf": 30,
     # Stepsize of SGD
     "sgd_stepsize": 5e-5,
     # TODO(pcm): Expose the choice between gpus and cpus

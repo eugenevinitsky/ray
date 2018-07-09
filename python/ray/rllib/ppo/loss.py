@@ -76,10 +76,15 @@ class ProximalPolicyGraph(object):
             self.vf_loss2 = tf.square(vf_clipped - value_targets)
             self.vf_loss = tf.minimum(self.vf_loss1, self.vf_loss2)
             self.mean_vf_loss = tf.reduce_mean(self.vf_loss)
+            """
             self.loss = tf.reduce_mean(
                 -self.surr + kl_coeff * self.kl +
                 config["vf_loss_coeff"] * self.vf_loss -
                 config["entropy_coeff"] * self.entropy)
+            """
+            self.loss = tf.reduce_mean(-self.surr)
+            self.loss_vf = tf.reduce_mean(self.vf_loss)
+
         else:
             self.mean_vf_loss = tf.constant(0.0)
             self.loss = tf.reduce_mean(
@@ -124,3 +129,7 @@ class ProximalPolicyGraph(object):
 
     def loss(self):
         return self.loss
+
+    def loss_vf(self):
+        return self.loss_vf
+

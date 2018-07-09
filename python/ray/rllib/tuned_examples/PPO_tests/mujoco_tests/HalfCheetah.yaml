@@ -23,4 +23,4 @@ HalfCheetah:
         num_workers: 3
         clip_param: 0.2
         use_gae: True
-        #model: {"custom_model":"RBF"}
+
