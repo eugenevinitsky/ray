@@ -102,7 +102,8 @@ class PPOEvaluator(PolicyEvaluator):
                 self.sess, self.registry, ADB=self.ADB)
 
         self.par_opt = LocalSyncParallelOptimizer(
-            tf.train.AdamOptimizer(self.config["sgd_stepsize"]),
+            tf.train.AdamOptimizer(self.config["sgd_stepsize_policy"]),
+            tf.train.AdamOptimizer(self.config["sgd_stepsize_vf"]),
             self.devices,
             [self.observations, self.value_targets, self.advantages,
              self.actions, self.prev_logits, self.prev_vf_preds],

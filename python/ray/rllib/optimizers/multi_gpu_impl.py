@@ -48,10 +48,11 @@ class LocalSyncParallelOptimizer(object):
         grad_norm_clipping: None or int stdev to clip grad norms by
     """
 
-    def __init__(self, optimizer, devices, input_placeholders,
+    def __init__(self, optimizer_policy, optimizer_vf, devices, input_placeholders,
                  per_device_batch_size, build_loss, logdir,
                  grad_norm_clipping=None):
-        self.optimizer = optimizer
+        self.optimizer_policy = optimizer_policy
+        self.optimizer_vf = optimizer_vf
         self.devices = devices
         self.batch_size = per_device_batch_size * len(devices)
         self.per_device_batch_size = per_device_batch_size
@@ -85,14 +86,14 @@ class LocalSyncParallelOptimizer(object):
             for i, (grad, var) in enumerate(avg_policy):
                 if grad is not None:
                     avg_policy[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
-        self._train_op_policy = self.optimizer.apply_gradients(avg_policy)
+        self._train_op_policy = self.optimizer_policy.apply_gradients(avg_policy)
 
         avg_vf = average_gradients([t.grads for t in self._towers_vf])
         if grad_norm_clipping:
             for i, (grad, var) in enumerate(avg_vf):
                 if grad is not None:
                     avg_vf[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
-        self._train_op_vf = self.optimizer.apply_gradients(avg_vf)
+        self._train_op_vf = self.optimizer_vf.apply_gradients(avg_vf)
 
 
     def load_data(self, sess, inputs, full_trace=False):
@@ -229,9 +230,9 @@ class LocalSyncParallelOptimizer(object):
                     current_slice.set_shape(ph.shape)
                     device_input_slices.append(current_slice)
                 device_loss_obj = self.build_loss(*device_input_slices)
-                device_grads_policy_loss = self.optimizer.compute_gradients(
+                device_grads_policy_loss = self.optimizer_policy.compute_gradients(
                     device_loss_obj.loss, colocate_gradients_with_ops=True)
-                device_grads_vf_loss = self.optimizer.compute_gradients(
+                device_grads_vf_loss = self.optimizer_vf.compute_gradients(
                         device_loss_obj.loss_vf, colocate_gradients_with_ops=True)
             return Tower(
                     tf.group(*[batch.initializer

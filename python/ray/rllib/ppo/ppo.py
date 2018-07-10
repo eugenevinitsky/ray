@@ -37,7 +37,8 @@ DEFAULT_CONFIG = {
     "num_sgd_iter_policy": 30,
     "num_sgd_iter_vf": 30,
     # Stepsize of SGD
-    "sgd_stepsize": 5e-5,
+    "sgd_stepsize_policy": 5e-5,
+    "sgd_stepsize_vf": 5e-5,
     # TODO(pcm): Expose the choice between gpus and cpus
     # as a command line argument.
     "devices": ["/cpu:%d" % i for i in range(4)],
@@ -169,7 +170,7 @@ class PPOAgent(Agent):
 
         rollouts_end = time.time()
         print("Computing policy (iterations=" + str(config["num_sgd_iter_policy"]) +
-              ", stepsize=" + str(config["sgd_stepsize"]) + "):")
+              ", stepsize=" + str(config["sgd_stepsize_policy"]) + "):")
         names_policy = [
             "iter", "policy loss", "kl", "entropy"]
         print(("{:>15}" * len(names_policy)).format(*names_policy))
@@ -241,7 +242,7 @@ class PPOAgent(Agent):
         print("Fitting the baseline")
 
         print("Computing policy (iterations=" + str(config["num_sgd_iter_vf"]) +
-              ", stepsize=" + str(config["sgd_stepsize"]) + "):")
+              ", stepsize=" + str(config["sgd_stepsize_vf"]) + "):")
         names_vf = [
             "iter", "vf_loss"]
         print(("{:>15}" * len(names_vf)).format(*names_vf))
