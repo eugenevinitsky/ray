@@ -127,11 +127,13 @@ class LocalSyncParallelOptimizer(object):
             run_options = tf.RunOptions(trace_level=tf.RunOptions.NO_TRACE)
         run_metadata = tf.RunMetadata()
 
+        init_op = [t.init_op for t in self._towers_policy] + [t.init_op for t in self._towers_vf]
         sess.run(
-            [t.init_op for t in self._towers_policy] + [t.init_op for t in self._towers_vf],
+            init_op,
             feed_dict=feed_dict,
             options=run_options,
             run_metadata=run_metadata)
+
         if full_trace:
             trace = timeline.Timeline(step_stats=run_metadata.step_stats)
             trace_file = open(os.path.join(self.logdir, "timeline-load.json"),
@@ -147,7 +149,7 @@ class LocalSyncParallelOptimizer(object):
         assert tuples_per_device % self.per_device_batch_size == 0
         return tuples_per_device
 
-    def optimize(self, sess, batch_index, extra_ops=[], extra_feed_dict={},
+    def optimize(self, sess, batch_index, baseline=False, extra_ops=[], extra_feed_dict={},
                  file_writer=None):
         """Run a single step of SGD.
 
@@ -180,11 +182,18 @@ class LocalSyncParallelOptimizer(object):
 
         feed_dict = {self._batch_index: batch_index}
         feed_dict.update(extra_feed_dict)
-        outs = sess.run(
-            [self._train_op_policy] + [self._train_op_vf] + extra_ops,
-            feed_dict=feed_dict,
-            options=run_options,
-            run_metadata=run_metadata)
+        if baseline:
+            outs = sess.run(
+                [self._train_op_vf] + extra_ops,
+                feed_dict=feed_dict,
+                options=run_options,
+                run_metadata=run_metadata)
+        else:
+            outs = sess.run(
+                [self._train_op_policy] + extra_ops,
+                feed_dict=feed_dict,
+                options=run_options,
+                run_metadata=run_metadata)
 
         if file_writer:
             trace = timeline.Timeline(step_stats=run_metadata.step_stats)
@@ -200,7 +209,7 @@ class LocalSyncParallelOptimizer(object):
         return self._shared_loss
 
     def get_device_losses(self):
-        return [t.loss_object for t in self._towers_policy] + [t.loss_object for t in self._towers_vf]
+        return [t.loss_object for t in self._towers_policy], [t.loss_object for t in self._towers_vf]
 
     def _setup_device(self, device, device_input_placeholders):
         with tf.device(device):
@@ -220,20 +229,19 @@ class LocalSyncParallelOptimizer(object):
                     current_slice.set_shape(ph.shape)
                     device_input_slices.append(current_slice)
                 device_loss_obj = self.build_loss(*device_input_slices)
-                device_grads_policy_policy_loss = self.optimizer.compute_gradients(
+                device_grads_policy_loss = self.optimizer.compute_gradients(
                     device_loss_obj.loss, colocate_gradients_with_ops=True)
-                device_grads_policy_vf_loss = self.optimizer.compute_gradients(
-                    device_loss_obj.loss_vf, colocate_gradients_with_ops=True)
+                device_grads_vf_loss = self.optimizer.compute_gradients(
+                        device_loss_obj.loss_vf, colocate_gradients_with_ops=True)
             return Tower(
-                tf.group(*[batch.initializer
-                           for batch in device_input_batches]),
-                device_grads_policy_policy_loss,
-                device_loss_obj), \
-                   Tower(
-            tf.group(*[batch.initializer
-                       for batch in device_input_batches]),
-                       device_grads_policy_vf_loss,
-            device_loss_obj)
+                    tf.group(*[batch.initializer
+                               for batch in device_input_batches]),
+                device_grads_policy_loss,
+                    device_loss_obj), Tower(
+                    tf.group(*[batch.initializer
+                               for batch in device_input_batches]),
+                device_grads_vf_loss,
+                    device_loss_obj)
 
 
 

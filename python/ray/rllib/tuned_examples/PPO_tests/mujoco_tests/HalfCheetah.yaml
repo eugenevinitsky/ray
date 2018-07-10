@@ -16,10 +16,12 @@ HalfCheetah:
         kl_coeff: 0
         entropy_coeff: 0
         vf_loss_coeff: 1.0
-        num_sgd_iter: 10
+        num_sgd_iter_policy: 10
+        num_sgd_iter_vf: 10
         sgd_stepsize: 0.0003
         sgd_batchsize: 64
-        timesteps_per_batch: 8142
+        timesteps_per_batch_policy: 8142
+        timesteps_per_batch_vf: 8142
         num_workers: 3
         clip_param: 0.2
         use_gae: True
