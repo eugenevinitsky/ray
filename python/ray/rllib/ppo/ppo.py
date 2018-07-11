@@ -167,7 +167,6 @@ class PPOAgent(Agent):
         else:
             samples_vf = samples_policy.copy()
 
-
         rollouts_end = time.time()
         print("Computing policy (iterations=" + str(config["num_sgd_iter_policy"]) +
               ", stepsize=" + str(config["sgd_stepsize_policy"]) + "):")

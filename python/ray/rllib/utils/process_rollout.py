@@ -37,8 +37,6 @@ def compute_advantages(rollout, last_r, gamma, lambda_=1.0, use_gae=True, ADB=Fa
         advantages = discount(delta_t, gamma * lambda_)
         traj["advantages"] = advantages
         if ADB:
-            print('Q_functions')
-            print(traj["Q_functions"].shape)
             Qpred_t = np.concatenate([traj["Q_functions"],
                                       np.array([[last_r for _ in range(len(traj["Q_functions"][0]))]])])
             Qdelta_t = traj["rewards"].reshape(-1, 1) + gamma * Qpred_t[1:] - Qpred_t[:-1]

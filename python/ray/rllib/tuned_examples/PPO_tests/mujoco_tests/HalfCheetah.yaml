@@ -17,7 +17,7 @@ HalfCheetah:
         entropy_coeff: 0
         vf_loss_coeff: 1.0
         num_sgd_iter_policy: 10
-        num_sgd_iter_vf: 10
+        num_sgd_iter_vf: 30
         sgd_stepsize_policy: 0.0003
         sgd_stepsize_vf: 0.0003
         sgd_batchsize: 64
