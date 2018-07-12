@@ -162,7 +162,7 @@ class PPOEvaluator(PolicyEvaluator):
         return self.par_opt.optimize(
             self.sess,
             batch_index,
-            baseline = False,
+            baseline=False,
             extra_ops=[
                 self.mean_policy_loss,
                 self.mean_kl, self.mean_entropy],

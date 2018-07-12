@@ -48,10 +48,11 @@ class LocalSyncParallelOptimizer(object):
         grad_norm_clipping: None or int stdev to clip grad norms by
     """
 
-    def __init__(self, optimizer, devices, input_placeholders,
+    def __init__(self, optimizer_policy, optimizer_baseline, devices, input_placeholders,
                  per_device_batch_size, build_loss, logdir,
                  grad_norm_clipping=None):
-        self.optimizer = optimizer
+        self.optimizer_policy = optimizer_policy
+        self.optimizer_baseline = optimizer_baseline
         self.devices = devices
         self.batch_size = per_device_batch_size * len(devices)
         self.per_device_batch_size = per_device_batch_size
@@ -71,17 +72,26 @@ class LocalSyncParallelOptimizer(object):
             data_splits = zip(
                 *[tf.split(ph, len(devices)) for ph in input_placeholders])
 
-        self._towers = []
+        self._towers_policy = []
+        self._towers_baseline = []
         for device, device_placeholders in zip(self.devices, data_splits):
-            self._towers.append(self._setup_device(device,
-                                                   device_placeholders))
+            tower_policy, tower_baseline = self._setup_device(device, device_placeholders)
+            self._towers_policy.append(tower_policy)
+            self._towers_baseline.append(tower_baseline)
 
-        avg = average_gradients([t.grads for t in self._towers])
+        avg_policy = average_gradients([t.grads for t in self._towers_policy])
         if grad_norm_clipping:
-            for i, (grad, var) in enumerate(avg):
+            for i, (grad, var) in enumerate(avg_policy):
                 if grad is not None:
-                    avg[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
-        self._train_op = self.optimizer.apply_gradients(avg)
+                    avg_policy[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+        self._train_op_policy = self.optimizer_policy.apply_gradients(avg_policy)
+
+        avg_baseline = average_gradients([t.grads for t in self._towers_baseline])
+        if grad_norm_clipping:
+            for i, (grad, var) in enumerate(avg_baseline):
+                if grad is not None:
+                    avg_baseline[i] = (tf.clip_by_norm(grad, grad_norm_clipping), var)
+        self._train_op_baseline = self.optimizer_baseline.apply_gradients(avg_baseline)
 
     def load_data(self, sess, inputs, full_trace=False):
         """Bulk loads the specified inputs into device memory.
@@ -116,7 +126,7 @@ class LocalSyncParallelOptimizer(object):
         run_metadata = tf.RunMetadata()
 
         sess.run(
-            [t.init_op for t in self._towers],
+            [t.init_op for t in self._towers_policy] + [t.init_op for t in self._towers_baseline],
             feed_dict=feed_dict,
             options=run_options,
             run_metadata=run_metadata)
@@ -135,7 +145,7 @@ class LocalSyncParallelOptimizer(object):
         assert tuples_per_device % self.per_device_batch_size == 0
         return tuples_per_device
 
-    def optimize(self, sess, batch_index, extra_ops=[], extra_feed_dict={},
+    def optimize(self, sess, batch_index, baseline=False, extra_ops=[], extra_feed_dict={},
                  file_writer=None):
         """Run a single step of SGD.
 
@@ -168,11 +178,18 @@ class LocalSyncParallelOptimizer(object):
 
         feed_dict = {self._batch_index: batch_index}
         feed_dict.update(extra_feed_dict)
-        outs = sess.run(
-            [self._train_op] + extra_ops,
-            feed_dict=feed_dict,
-            options=run_options,
-            run_metadata=run_metadata)
+        if baseline:
+            outs = sess.run(
+                [self._train_op_baseline] + extra_ops,
+                feed_dict=feed_dict,
+                options=run_options,
+                run_metadata=run_metadata)
+        else:
+            outs = sess.run(
+                [self._train_op_policy] + extra_ops,
+                feed_dict=feed_dict,
+                options=run_options,
+                run_metadata=run_metadata)
 
         if file_writer:
             trace = timeline.Timeline(step_stats=run_metadata.step_stats)
@@ -188,7 +205,7 @@ class LocalSyncParallelOptimizer(object):
         return self._shared_loss
 
     def get_device_losses(self):
-        return [t.loss_object for t in self._towers]
+        return [t.loss_object for t in self._towers_policy], [t.loss_object for t in self._towers_baseline]
 
     def _setup_device(self, device, device_input_placeholders):
         with tf.device(device):
@@ -208,13 +225,21 @@ class LocalSyncParallelOptimizer(object):
                     current_slice.set_shape(ph.shape)
                     device_input_slices.append(current_slice)
                 device_loss_obj = self.build_loss(*device_input_slices)
-                device_grads = self.optimizer.compute_gradients(
+                device_grads_policy = self.optimizer_policy.compute_gradients(
                     device_loss_obj.loss, colocate_gradients_with_ops=True)
+                device_grads_baseline = self.optimizer_baseline.compute_gradients(
+                    device_loss_obj.loss_vf, colocate_gradients_with_ops=True)
             return Tower(
                 tf.group(*[batch.initializer
                            for batch in device_input_batches]),
-                device_grads,
+                device_grads_policy,
+                device_loss_obj), \
+                   Tower(
+                tf.group(*[batch.initializer
+                           for batch in device_input_batches]),
+                       device_grads_baseline,
                 device_loss_obj)
+
 
 
 # Each tower is a copy of the loss graph pinned to a specific device.

@@ -21,13 +21,19 @@ class SampleBatchBuilder(object):
 
     def __init__(self):
         self.buffers = collections.defaultdict(list)
+        self.Q_functions = np.array([])
 
     def add_values(self, **values):
         for k, v in values.items():
             self.buffers[k].append(v)
 
+    def set_Q(self, liste):
+        self.Q_functions = liste
+
     def build(self):
-        return SampleBatch({k: np.array(v) for k, v in self.buffers.items()})
+        dict_ = {k: np.array(v) for k, v in self.buffers.items()}
+        dict_["Q_functions"] = self.Q_functions
+        return SampleBatch(dict_)
 
 
 
