@@ -20,9 +20,9 @@ Hopper:
         num_sgd_iter_vf: 30
         sgd_stepsize_policy: 0.0003
         sgd_stepsize_vf: 0.0003
-        sgd_batchsize: 64
+        sgd_batchsize: 1024
         timesteps_per_batch_policy: 122880
-        timesteps_per_batch_vf: 122880
+        timesteps_per_batch_vf: 1228800
         num_workers: 59
         clip_param: 0.2
         use_gae: True
