@@ -1,7 +1,7 @@
-Hopper:
+Ant_ADB:
     env: Ant-v2
     run: PPO
-    repeat: 3
+    repeat: 1
     checkpoint_freq: 5
     stop: {"training_iteration": 300}
     trial_resources:

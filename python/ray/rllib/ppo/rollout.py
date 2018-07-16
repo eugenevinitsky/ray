@@ -20,9 +20,9 @@ def collect_samples(agents, config, local_evaluator, extra_samples=False):
         agent_dict[fut_sample] = agent
 
     if extra_samples:
-        limit = config["timesteps_per_batch_policy"]
-    else:
         limit = config["timesteps_per_batch_vf"]
+    else:
+        limit = config["timesteps_per_batch_policy"]
 
     while num_timesteps_so_far < limit:
         # TODO(pcm): Make wait support arbitrary iterators and remove the
