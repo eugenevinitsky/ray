@@ -208,7 +208,7 @@ def _env_runner(env, policy, num_local_steps, horizon, obs_filter, pack, ADB):
             last_features = features
 
             if terminal:
-                Q_functions = np.transpose(np.array(policy.compute_Q_fuctions(observations_, actions_)))
+                Q_functions = np.transpose(np.array(policy.compute_ad_baseline(observations_, actions_)))
                 batch_builder.set_Q(Q_functions)
                 yield CompletedRollout(length, rewards)
 
