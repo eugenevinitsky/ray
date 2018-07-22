@@ -104,6 +104,8 @@ class ProximalPolicyGraph(object):
         action, logprobs = self.sess.run(
             [self.sampler, self.curr_logits],
             feed_dict={self.observations: [observation]})
+        import numpy as np
+        action = np.zeros(action.shape)
         vf = self.sess.run(
             self.value_function,
             feed_dict={self.observations: [observation], self.actions: action})
