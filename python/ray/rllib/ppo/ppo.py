@@ -285,8 +285,6 @@ class PPOAgent(Agent):
                         log_histogram.log_histogram(self.file_writer, key, variable, self.global_step_vf)
             self.global_step_vf+=1
 
-
-
         if kl > 2.0 * config["kl_target"]:
             self.kl_coeff *= 1.5
         elif kl < 0.5 * config["kl_target"]:
