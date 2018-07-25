@@ -62,11 +62,11 @@ class ProximalPolicyGraph(object):
             condition_1 = tf.less(ratio_non_derivable, 1 - config["clip_param"])
             condition_2 = tf.greater(ratio_non_derivable, 1 + config["clip_param"])
 
-            alpha_vector = tf.where(condition_1, 1 - config["clip_param"] / ratio_non_derivable, ratio_non_derivable)
-            alpha_vector = tf.where(condition_2, 1 + config["clip_param"] / alpha_vector, alpha_vector)
-            alpha_vector = tf.stack([alpha_vector for _ in range(action_dim)], axis=1)
+            alpha_vector = tf.where(condition_1, (1 - config["clip_param"]) / ratio_non_derivable, ratio_non_derivable)
+            alpha_vector = tf.where(condition_2, (1 + config["clip_param"]) / alpha_vector, alpha_vector)
+            alpha_vector = tf.stack([alpha_vector**(1/action_dim) for _ in range(action_dim)], axis=1)
 
-            self.surr2 = self.ratio_coordinate_wise * (alpha_vector**(1/action_dim)) * advantages
+            self.surr2 = self.ratio_coordinate_wise * alpha_vector * advantages
             self.surr = tf.reduce_sum(tf.minimum(self.surr1, self.surr2), reduction_indices=[1])
 
         else:
