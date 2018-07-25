@@ -196,11 +196,10 @@ class PPOAgent(Agent):
                 full_trace = (
                     i == 0 and self.iteration == 0 and
                     batch_index == config["full_trace_nth_sgd_batch"])
-                batch_loss, batch_kl, batch_entropy, batch_alpha_vector = model.run_sgd_minibatch(
+                batch_loss, batch_kl, batch_entropy = model.run_sgd_minibatch(
                         permutation[batch_index] * model.per_device_batch_size,
                         self.kl_coeff, full_trace,
                         self.file_writer)
-                print(batch_alpha_vector)
                 policy_graph.append(batch_loss)
                 kl.append(batch_kl)
                 entropy.append(batch_entropy)
