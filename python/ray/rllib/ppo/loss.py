@@ -36,9 +36,7 @@ class ProximalPolicyGraph(object):
             vf_config["free_log_std"] = False
             with tf.variable_scope("value_function"):
                 if ADB:
-                    zero_action = tf.zeros(tf.shape(self.actions))
-                    input_vf = tf.concat([self.observations, zero_action], 1)
-                    #input_vf = tf.concat([self.observations, self.actions], 1)
+                    input_vf = tf.concat([self.observations, self.actions], 1)
                 else:
                     input_vf = self.observations
                 self.value_function = ModelCatalog.get_model(
