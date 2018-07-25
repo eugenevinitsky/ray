@@ -46,30 +46,34 @@ class ProximalPolicyGraph(object):
             self.value_function = tf.reshape(self.value_function, [-1])
 
         # Make loss functions.
-        if ADB:
-            self.ratio = tf.div(self.curr_dist.r_matrix(actions),
+        self.ratio_coordinate_wise = tf.div(self.curr_dist.r_matrix(actions),
                             self.prev_dist.r_matrix(actions))
-        else:
-            self.ratio = tf.exp(self.curr_dist.logp(actions) -
+        self.ratio_total = tf.exp(self.curr_dist.logp(actions) -
                                 self.prev_dist.logp(actions))
         self.kl = self.prev_dist.kl(self.curr_dist)
         self.mean_kl = tf.reduce_mean(self.kl)
         self.entropy = self.curr_dist.entropy()
         self.mean_entropy = tf.reduce_mean(self.entropy)
-        self.surr1 = self.ratio * advantages
-        if ADB:
 
+        if ADB:
+            self.surr1 = self.ratio_coordinate_wise * advantages
             action_dim = action_space.shape[0]
-            self.surr2 = tf.clip_by_value(self.ratio, (1 - config["clip_param"])**(1/action_dim),
-                                          (1 + config["clip_param"])**(1/action_dim)) * advantages
-            """
-            self.surr2 = tf.clip_by_value(self.ratio, 1 - config["clip_param"],
-                                          1 + config["clip_param"]) * advantages
-            """
+
+            ratio_non_derivable = tf.stop_gradient(self.ratio_total)
+
+            condition_1 = tf.less(ratio_non_derivable, 1 - config["clip_param"])
+            condition_2 = tf.greater(ratio_non_derivable, 1 + config["clip_param"])
+
+            alpha_vector = tf.where(condition_1, 1 - config["clip_param"] / ratio_non_derivable, ratio_non_derivable)
+            alpha_vector = tf.where(condition_2, 1 + config["clip_param"] / alpha_vector, alpha_vector)
+            alpha_vector = tf.stack([alpha_vector for _ in range(action_dim)], axis=1)
+
+            self.surr2 = self.ratio_coordinate_wise * (alpha_vector**(1/action_dim)) * advantages
             self.surr = tf.reduce_sum(tf.minimum(self.surr1, self.surr2), reduction_indices=[1])
 
         else:
-            self.surr2 = tf.clip_by_value(self.ratio, 1 - config["clip_param"],
+            self.surr1 = self.ratio_total * advantages
+            self.surr2 = tf.clip_by_value(self.ratio_total, 1 - config["clip_param"],
                                           1 + config["clip_param"]) * advantages
             self.surr = tf.minimum(self.surr1, self.surr2)
         self.mean_policy_loss = tf.reduce_mean(-self.surr)
