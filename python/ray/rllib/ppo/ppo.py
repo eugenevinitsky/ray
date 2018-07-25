@@ -187,7 +187,7 @@ class PPOAgent(Agent):
             batch_index = 0
             num_batches = (
                 int(tuples_per_device) // int(model.per_device_batch_size))
-            policy_graph, kl, entropy = [], [], []
+            policy_graph, kl, entropy, alpha_vector = [], [], [], []
             permutation = np.random.permutation(num_batches)
             # Prepare to drop into the debugger
             if self.iteration == config["tf_debug_iteration"]:
@@ -196,10 +196,11 @@ class PPOAgent(Agent):
                 full_trace = (
                     i == 0 and self.iteration == 0 and
                     batch_index == config["full_trace_nth_sgd_batch"])
-                batch_loss, batch_kl, batch_entropy = model.run_sgd_minibatch(
+                batch_loss, batch_kl, batch_entropy, batch_alpha_vector = model.run_sgd_minibatch(
                         permutation[batch_index] * model.per_device_batch_size,
                         self.kl_coeff, full_trace,
                         self.file_writer)
+                print(batch_alpha_vector)
                 policy_graph.append(batch_loss)
                 kl.append(batch_kl)
                 entropy.append(batch_entropy)
@@ -211,7 +212,6 @@ class PPOAgent(Agent):
             print(
                 "{:>15}{:15.5e}{:15.5e}{:15.5e}".format(
                     i, policy_graph, kl, entropy))
-
             values_policy = []
             if i == config["num_sgd_iter_policy"] - 1:
                 metric_prefix = "ppo/sgd/final_iter/"
