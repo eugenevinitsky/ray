@@ -61,8 +61,8 @@ class ProximalPolicyGraph(object):
 
             one_vector = tf.ones_like(self.ratio_total)
 
-            alpha_vector_1 = tf.where(condition_1, tf.div(1 - config["clip_param"], self.ratio_total), one_vector)
-            alpha_vector_2 = tf.where(condition_2, tf.div(1 + config["clip_param"], self.ratio_total), one_vector)
+            alpha_vector_1 = tf.where(condition_1, tf.div(1 - config["clip_param"], 1e-4 + self.ratio_total), one_vector)
+            alpha_vector_2 = tf.where(condition_2, tf.div(1 + config["clip_param"], 1e-4 + self.ratio_total), one_vector)
             alpha_vector = alpha_vector_1 * alpha_vector_2
             self.alpha_vector = tf.stop_gradient(tf.stack([alpha_vector**(1/action_dim) for _ in range(action_dim)], axis=1))
             self.surr2 = self.ratio_coordinate_wise * self.alpha_vector * advantages
