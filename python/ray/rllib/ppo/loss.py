@@ -56,13 +56,16 @@ class ProximalPolicyGraph(object):
             self.surr1 = self.ratio_coordinate_wise * advantages
             action_dim = action_space.shape[0]
 
-            condition_1 = tf.less(self.ratio_total , 1 - config["clip_param"])
-            condition_2 = tf.greater(self.ratio_total , 1 + config["clip_param"])
+            ratio_coordinate_wise = tf.clip_by_value(self.ratio_coordinate_wise, 1 - config["clip_param"],
+                                          1 + config["clip_param"])
+            ratio_non_derivable = tf.reduce_prod(ratio_coordinate_wise, reduction_indices=[1])
 
-            one_vector = tf.ones_like(self.ratio_total)
+            condition_1 = tf.less(ratio_non_derivable , 1 - config["clip_param"])
+            condition_2 = tf.greater(ratio_non_derivable , 1 + config["clip_param"])
+            one_vector = tf.ones_like(ratio_non_derivable)
 
-            alpha_vector_1 = tf.where(condition_1, tf.div(1 - config["clip_param"], 1e-4 + self.ratio_total), one_vector)
-            alpha_vector_2 = tf.where(condition_2, tf.div(1 + config["clip_param"], 1e-4 + self.ratio_total), one_vector)
+            alpha_vector_1 = tf.where(condition_1, tf.div(1 - config["clip_param"], 1e-4 + ratio_non_derivable), one_vector)
+            alpha_vector_2 = tf.where(condition_2, tf.div(1 + config["clip_param"], 1e-4 + ratio_non_derivable), one_vector)
             alpha_vector = alpha_vector_1 * alpha_vector_2
             self.alpha_vector = tf.stop_gradient(tf.stack([alpha_vector**(1/action_dim) for _ in range(action_dim)], axis=1))
             self.surr2 = self.ratio_coordinate_wise * self.alpha_vector * advantages
