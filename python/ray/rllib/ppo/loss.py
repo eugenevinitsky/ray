@@ -36,7 +36,8 @@ class ProximalPolicyGraph(object):
             vf_config["free_log_std"] = False
             with tf.variable_scope("value_function"):
                 if ADB:
-                    input_vf = tf.concat([self.observations, self.actions], 1)
+                    #input_vf = tf.concat([self.observations, self.actions], 1)
+                    input_vf = tf.concat([self.observations, tf.zeros_like(self.actions)], 1)
                 else:
                     input_vf = self.observations
                 self.value_function = ModelCatalog.get_model(
@@ -58,7 +59,7 @@ class ProximalPolicyGraph(object):
 
             ratio_coordinate_wise = tf.clip_by_value(self.ratio_coordinate_wise, 1 - config["clip_param"],
                                           1 + config["clip_param"])
-            
+
             ratio_non_derivable = tf.reduce_prod(ratio_coordinate_wise, reduction_indices=[1])
 
             condition_1 = tf.less(ratio_non_derivable , 1 - config["clip_param"])
