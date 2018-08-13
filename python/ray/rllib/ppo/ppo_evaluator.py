@@ -123,6 +123,14 @@ class PPOEvaluator(PolicyEvaluator):
             self.mean_entropy = tf.reduce_mean(
                 tf.stack(values=[
                     policy.mean_entropy for policy in policies_loss]), 0)
+            self.saturation_up = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.saturation_up for policy in policies_loss]), 0)
+            self.saturation_down = tf.reduce_mean(
+                tf.stack(values=[
+                    policy.saturation_down for policy in policies_loss]), 0)
+            self.clipping = tf.stack(values=[
+                    policy.clipping for policy in policies_loss])
             self.mean_vf_loss = tf.reduce_mean(
                 tf.stack(values=[
                     policy.mean_vf_loss for policy in policies_baselines]), 0)
@@ -165,7 +173,7 @@ class PPOEvaluator(PolicyEvaluator):
             baseline=False,
             extra_ops=[
                 self.mean_policy_loss,
-                self.mean_kl, self.mean_entropy],
+                self.mean_kl, self.mean_entropy, self.saturation_up, self.saturation_down, self.clipping],
             extra_feed_dict={self.kl_coeff: kl_coeff},
             file_writer=file_writer if full_trace else None)
 

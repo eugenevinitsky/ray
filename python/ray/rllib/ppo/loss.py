@@ -75,7 +75,21 @@ class ProximalPolicyGraph(object):
             self.surr = tf.reduce_sum(tf.minimum(self.surr1, self.surr2), reduction_indices=[1])
 
         else:
+
+            condition_down = tf.less(self.ratio_total, 1 - config["clip_param"])
+            condition_up = tf.greater(self.ratio_total, 1 + config["clip_param"])
+
+            positive = tf.ones_like(self.ratio_total)
+            negative = tf.zeros_like(self.ratio_total)
+
+            saturation_rate_up = tf.where(condition_up, positive, negative)
+            saturation_rate_down = tf.where(condition_down, positive, negative)
+            self.saturation_up = tf.reduce_mean(saturation_rate_up)
+            self.saturation_down = tf.reduce_mean(saturation_rate_down)
+
             self.surr1 = self.ratio_total * advantages
+            self.clipping = tf.clip_by_value(self.ratio_total, 1 - config["clip_param"],
+                                          1 + config["clip_param"])
             self.surr2 = tf.clip_by_value(self.ratio_total, 1 - config["clip_param"],
                                           1 + config["clip_param"]) * advantages
             self.surr = tf.minimum(self.surr1, self.surr2)
@@ -92,6 +106,7 @@ class ProximalPolicyGraph(object):
             self.vf_loss2 = tf.square(vf_clipped - value_targets)
             self.vf_loss = tf.minimum(self.vf_loss1, self.vf_loss2)
             self.mean_vf_loss = tf.reduce_mean(self.vf_loss)
+
             self.loss = tf.reduce_mean(-self.surr)
             self.loss_vf = tf.reduce_mean(self.vf_loss)
 

@@ -171,7 +171,7 @@ class PPOAgent(Agent):
         print("Computing policy (iterations=" + str(config["num_sgd_iter_policy"]) +
               ", stepsize=" + str(config["sgd_stepsize_policy"]) + "):")
         names_policy = [
-            "iter", "policy loss", "kl", "entropy"]
+            "iter", "policy loss", "kl", "entropy", "saturation_rate_up", "saturation_rate_down"]
         print(("{:>15}" * len(names_policy)).format(*names_policy))
         samples_policy.shuffle()
         shuffle_end = time.time()
@@ -187,7 +187,7 @@ class PPOAgent(Agent):
             batch_index = 0
             num_batches = (
                 int(tuples_per_device) // int(model.per_device_batch_size))
-            policy_graph, kl, entropy, alpha_vector = [], [], [], []
+            policy_graph, kl, entropy, saturation_rate_up, saturation_rate_down  = [], [], [], [], []
             permutation = np.random.permutation(num_batches)
             # Prepare to drop into the debugger
             if self.iteration == config["tf_debug_iteration"]:
@@ -196,21 +196,25 @@ class PPOAgent(Agent):
                 full_trace = (
                     i == 0 and self.iteration == 0 and
                     batch_index == config["full_trace_nth_sgd_batch"])
-                batch_loss, batch_kl, batch_entropy = model.run_sgd_minibatch(
+                batch_loss, batch_kl, batch_entropy, batch_saturation_rate_up, batch_saturation_rate_down, clipping = model.run_sgd_minibatch(
                         permutation[batch_index] * model.per_device_batch_size,
                         self.kl_coeff, full_trace,
                         self.file_writer)
                 policy_graph.append(batch_loss)
                 kl.append(batch_kl)
                 entropy.append(batch_entropy)
+                saturation_rate_down.append(batch_saturation_rate_down)
+                saturation_rate_up.append(batch_saturation_rate_up)
                 batch_index += 1
             policy_graph = np.mean(policy_graph)
             kl = np.mean(kl)
             entropy = np.mean(entropy)
+            saturation_rate_down = np.mean(saturation_rate_down)
+            saturation_rate_up = np.mean(saturation_rate_up)
             sgd_end = time.time()
             print(
-                "{:>15}{:15.5e}{:15.5e}{:15.5e}".format(
-                    i, policy_graph, kl, entropy))
+                "{:>15}{:15.5e}{:15.5e}{:15.5e}{:15.5e}{:15.5e}".format(
+                    i, policy_graph, kl, entropy, saturation_rate_up, saturation_rate_down))
             values_policy = []
             if i == config["num_sgd_iter_policy"] - 1:
                 metric_prefix = "ppo/sgd/final_iter/"
@@ -222,11 +226,18 @@ class PPOAgent(Agent):
                         tag=metric_prefix + "mean_entropy",
                         simple_value=entropy),
                     tf.Summary.Value(
+                        tag=metric_prefix + "saturation_rate_up",
+                        simple_value=saturation_rate_up),
+                    tf.Summary.Value(
+                        tag=metric_prefix + "saturation_rate_down",
+                        simple_value=saturation_rate_down),
+                    tf.Summary.Value(
                         tag=metric_prefix + "mean_loss",
                         simple_value=policy_graph),
                     tf.Summary.Value(
                         tag=metric_prefix + "mean_kl",
                         simple_value=kl)])
+
                 if self.file_writer:
                     sgd_stats = tf.Summary(value=values_policy)
                     self.file_writer.add_summary(sgd_stats, self.global_step_policy)
@@ -236,6 +247,9 @@ class PPOAgent(Agent):
 
             self.global_step_policy += 1
             sgd_time += sgd_end - sgd_start
+
+            print("clipping")
+            print(clipping)
 
         print("Fitting the baseline")
 
