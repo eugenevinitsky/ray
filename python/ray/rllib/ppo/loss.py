@@ -58,7 +58,8 @@ class ProximalPolicyGraph(object):
         if ADB:
             condition_1 = tf.less(self.ratio, 1 + config["clip_param"])
             condition_2 = tf.greater(self.ratio, 1 - config["clip_param"])
-            self.surr_ = tf.reduce_sum(self.ratio_coordinatewise * advantages, reduction_indices=[1])
+            self.surr_ = tf.reduce_sum(tf.clip_by_value(self.ratio_coordinatewise , 1 - config["clip_param"],
+                                          1 + config["clip_param"]) * advantages, reduction_indices=[1])
             condition_positive = tf.ones_like(self.surr_)
             condition_negative = tf.zeros_like(self.surr_)
             cond_1 = tf.stop_gradient(tf.where(condition_1, condition_positive, condition_negative))
