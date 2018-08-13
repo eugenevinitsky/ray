@@ -44,24 +44,30 @@ class ProximalPolicyGraph(object):
             self.value_function = tf.reshape(self.value_function, [-1])
 
         # Make loss functions.
-        if ADB:
-            self.ratio = tf.div(self.curr_dist.r_matrix(actions),
+        self.ratio_coordinatewise = tf.div(self.curr_dist.r_matrix(actions),
                             self.prev_dist.r_matrix(actions))
-        else:
-            self.ratio = tf.exp(self.curr_dist.logp(actions) -
+
+        self.ratio = tf.exp(self.curr_dist.logp(actions) -
                                 self.prev_dist.logp(actions))
         self.kl = self.prev_dist.kl(self.curr_dist)
         self.mean_kl = tf.reduce_mean(self.kl)
         self.entropy = self.curr_dist.entropy()
         self.mean_entropy = tf.reduce_mean(self.entropy)
-        self.surr1 = self.ratio * advantages
+
+
         if ADB:
-            action_dim = action_space.shape[0]
-            self.surr2 = tf.clip_by_value(self.ratio, (1 - config["clip_param"])**(1/action_dim),
-                                          (1 + config["clip_param"])**(1/action_dim)) * advantages
-            self.surr = tf.reduce_sum(tf.minimum(self.surr1, self.surr2), reduction_indices=[1])
+            condition_1 = tf.less(self.ratio, 1 + config["clip_param"])
+            condition_2 = tf.greater(self.ratio, 1 - config["clip_param"])
+            self.surr_ = tf.reduce_sum(self.ratio_coordinatewise * advantages, reduction_indices=[1])
+            condition_positive = tf.ones_like(self.surr_)
+            condition_negative = tf.zeros_like(self.surr_)
+            cond_1 = tf.stop_gradient(tf.where(condition_1, condition_positive, condition_negative))
+            cond_2 = tf.stop_gradient(tf.where(condition_2, condition_positive, condition_negative))
+
+            self.surr = self.surr_ * cond_1 * cond_2
 
         else:
+            self.surr1 = self.ratio * advantages
             self.surr2 = tf.clip_by_value(self.ratio, 1 - config["clip_param"],
                                           1 + config["clip_param"]) * advantages
             self.surr = tf.minimum(self.surr1, self.surr2)
