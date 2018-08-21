@@ -11,12 +11,12 @@ def discount(x, gamma):
     return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
 
 
-def process_rollout(rollout, reward_filter, gamma, lambda_=1.0, use_gae=True):
+def process_rollout(rollout, last_r, gamma, lambda_=1.0, use_gae=True, ADB=False):
     """Given a rollout, compute its value targets and the advantage.
 
     Args:
         rollout (PartialRollout): Partial Rollout Object
-        reward_filter (Filter): Filter for processing advantanges
+        last_r (float): Value estimation for last observation
         gamma (float): Parameter for GAE
         lambda_ (float): Parameter for GAE
         use_gae (bool): Using Generalized Advantage Estamation
@@ -26,26 +26,27 @@ def process_rollout(rollout, reward_filter, gamma, lambda_=1.0, use_gae=True):
             processed rewards."""
 
     traj = {}
-    trajsize = len(rollout.data["actions"])
-    for key in rollout.data:
-        traj[key] = np.stack(rollout.data[key])
+    trajsize = len(rollout["actions"])
+    for key in rollout:
+        traj[key] = np.stack(rollout[key])
 
     if use_gae:
-        assert "vf_preds" in rollout.data, "Values not found!"
-        vpred_t = np.stack(
-            rollout.data["vf_preds"] + [np.array(rollout.last_r)]).squeeze()
+        assert "vf_preds" in rollout, "Values not found!"
+        vpred_t = np.concatenate([rollout["vf_preds"], np.array([last_r])])
         delta_t = traj["rewards"] + gamma * vpred_t[1:] - vpred_t[:-1]
-        # This formula for the advantage comes
-        # "Generalized Advantage Estimation": https://arxiv.org/abs/1506.02438
-        traj["advantages"] = discount(delta_t, gamma * lambda_)
-        traj["value_targets"] = traj["advantages"] + traj["vf_preds"]
-    else:
-        rewards_plus_v = np.stack(
-            rollout.data["rewards"] + [np.array(rollout.last_r)]).squeeze()
-        traj["advantages"] = discount(rewards_plus_v, gamma)[:-1]
+        advantages = discount(delta_t, gamma * lambda_)
+        traj["advantages"] = advantages
+        if ADB:
+            Qpred_t = np.concatenate([traj["Q_functions"],
+                                      np.array([[last_r for _ in range(len(traj["Q_functions"][0]))]])])
+            Qdelta_t = traj["rewards"].reshape(-1, 1) + gamma * Qpred_t[1:] - Qpred_t[:-1]
+            traj["advantages"] = discount(Qdelta_t, gamma * lambda_)
 
-    for i in range(traj["advantages"].shape[0]):
-        traj["advantages"][i] = reward_filter(traj["advantages"][i])
+        traj["value_targets"] = advantages + traj["vf_preds"]
+    else:
+        rewards_plus_v = np.concatenate(
+            [rollout["rewards"], np.array([last_r])])
+        traj["advantages"] = discount(rewards_plus_v, gamma)[:-1]
 
     traj["advantages"] = traj["advantages"].copy()
 

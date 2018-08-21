@@ -1,7 +1,7 @@
-Hopper:
-    env: Hopper-v2
+Ant_ADB:
+    env: Ant-v2
     run: PPO
-    repeat: 3
+    repeat: 1
     checkpoint_freq: 5
     stop: {"training_iteration": 300}
     trial_resources:
@@ -9,7 +9,7 @@ Hopper:
         gpu: 0
         extra_cpu: 59
     config:
-        ADB: False
+        ADB: True
         horizon: 2048
         gamma: 0.99
         lambda: 0.95

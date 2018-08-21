@@ -9,7 +9,7 @@ Hopper:
         gpu: 0
         extra_cpu: 59
     config:
-        ADB: False
+        ADB: True
         horizon: 2048
         gamma: 0.99
         lambda: 0.95
