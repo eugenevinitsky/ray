@@ -2,8 +2,6 @@ import numpy as np
 from collections import deque
 import gym
 from gym import spaces
-import cv2
-cv2.ocl.setUseOpenCL(False)
 
 
 def is_atari(env):
