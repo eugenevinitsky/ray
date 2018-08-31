@@ -28,7 +28,7 @@ build_parquet() {
 
     OPENSSL_ROOT_DIR=$OPENSSL_DIR \
     PATH="$BISON_DIR:$PATH" \
-    make -j4
+    make
 
     OPENSSL_ROOT_DIR=$OPENSSL_DIR \
     PATH="$BISON_DIR:$PATH" \
@@ -45,7 +45,7 @@ build_parquet() {
 
     PARQUET_HOME=$TP_DIR/pkg/arrow/cpp/build/cpp-install \
     BOOST_ROOT=$TP_DIR/pkg/boost \
-    make -j4
+    make
     make install
   fi
 }
