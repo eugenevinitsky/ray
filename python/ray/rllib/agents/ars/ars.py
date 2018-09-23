@@ -20,6 +20,7 @@ from ray.rllib.agents.ars import optimizers
 from ray.rllib.agents.ars import policies
 from ray.rllib.agents.es import tabular_logger as tlogger
 from ray.rllib.agents.ars import utils
+from ray.rllib.utils import FilterManager
 
 Result = namedtuple("Result", [
     "noise_indices", "noisy_returns", "sign_noisy_returns", "noisy_lengths",
@@ -94,6 +95,22 @@ class Worker(object):
                 self.sess, self.env.action_space, self.preprocessor,
                 config["observation_filter"], config["fcnet_hiddens"],
                 **policy_params)
+
+    @property
+    def filters(self):
+        return {"default": self.policy.get_filter()}
+
+    def sync_filters(self, new_filters):
+        for k in self.filters:
+            self.filters[k].sync(new_filters[k])
+
+    def get_filters(self, flush_after=False):
+        return_filters = {}
+        for k, f in self.filters.items():
+            return_filters[k] = f.as_serializable()
+            if flush_after:
+                f.clear_buffer()
+        return return_filters
 
     def rollout(self, timestep_limit, add_noise=False):
         rollout_rewards, rollout_length = policies.rollout(
@@ -223,6 +240,7 @@ class ARSAgent(Agent):
                 num_episodes += sum(len(pair) for pair in result.noisy_lengths)
                 num_timesteps += sum(
                     sum(pair) for pair in result.noisy_lengths)
+
         return results, num_episodes, num_timesteps
 
     def _train(self):
@@ -301,6 +319,11 @@ class ARSAgent(Agent):
         if len(all_eval_returns) > 0:
             self.reward_list.append(eval_returns.mean())
 
+        # Now sync the filters
+        FilterManager.synchronize({
+            "default": self.policy.get_filter()
+        }, self.workers)
+
         step_tend = time.time()
 
         tlogger.record_tabular("NoisyEpRewMean", noisy_returns.mean())
@@ -341,7 +364,10 @@ class ARSAgent(Agent):
         checkpoint_path = os.path.join(checkpoint_dir,
                                        "checkpoint-{}".format(self.iteration))
         weights = self.policy.get_weights()
-        objects = [weights, self.episodes_so_far, self.timesteps_so_far]
+        filter = self.policy.get_filter()
+        objects = [
+            weights, self.episodes_so_far, self.timesteps_so_far, filter
+        ]
         pickle.dump(objects, open(checkpoint_path, "wb"))
         return checkpoint_path
 
@@ -350,6 +376,10 @@ class ARSAgent(Agent):
         self.policy.set_weights(objects[0])
         self.episodes_so_far = objects[1]
         self.timesteps_so_far = objects[2]
+        self.policy.set_filter(objects[3])
+        FilterManager.synchronize({
+            "default": self.policy.get_filter()
+        }, self.workers)
 
     def compute_action(self, observation):
         return self.policy.compute(observation, update=True)[0]
