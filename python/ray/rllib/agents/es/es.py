@@ -38,7 +38,7 @@ DEFAULT_CONFIG = {
     "stepsize": 0.01,
     "observation_filter": "MeanStdFilter",
     "noise_size": 250000000,
-    "report_length": 10,
+    "report_length": 5,
     "env": None,
     "env_config": {},
     "fcnet_hiddens": [256, 256],

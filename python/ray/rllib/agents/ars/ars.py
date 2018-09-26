@@ -36,7 +36,7 @@ DEFAULT_CONFIG = with_common_config({
     'observation_filter': "MeanStdFilter",
     'noise_size': 250000000,
     'eval_prob': 0.03,  # probability of evaluating the parameter rewards
-    'report_length': 10,  # how many of the last rewards we average over
+    'report_length': 5,  # how many of the last rewards we average over
     'env_config': {},
     'offset': 0,
     'policy_type': "LinearPolicy",  # ["LinearPolicy", "MLPPolicy"]
