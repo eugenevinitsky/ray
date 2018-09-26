@@ -41,6 +41,7 @@ DEFAULT_CONFIG = {
     "report_length": 10,
     "env": None,
     "env_config": {},
+    "fcnet_hiddens": [256, 256],
 }
 
 
@@ -84,7 +85,7 @@ class Worker(object):
         self.sess = utils.make_session(single_threaded=True)
         self.policy = policies.GenericPolicy(
             self.sess, self.env.action_space, self.preprocessor,
-            config["observation_filter"], **policy_params)
+            config["observation_filter"], config, **policy_params)
 
     @property
     def filters(self):
@@ -180,7 +181,7 @@ class ESAgent(Agent):
         self.sess = utils.make_session(single_threaded=False)
         self.policy = policies.GenericPolicy(
             self.sess, env.action_space, preprocessor,
-            self.config["observation_filter"], **policy_params)
+            self.config["observation_filter"], self.config, **policy_params)
         self.optimizer = optimizers.Adam(self.policy, self.config["stepsize"])
         self.report_length = self.config["report_length"]
 
