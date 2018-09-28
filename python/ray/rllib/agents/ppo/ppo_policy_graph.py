@@ -54,7 +54,8 @@ class PPOLoss(object):
             vf_loss_coeff (float): Coefficient of the value function loss
             use_gae (bool): If true, use the Generalized Advantage Estimator.
         """
-        dist_cls, _ = ModelCatalog.get_action_dist(action_space)
+        dist_cls, _ = ModelCatalog.get_action_dist(
+            action_space, self.config["model"])
         prev_dist = dist_cls(logits)
         # Make loss functions.
         logp_ratio = tf.exp(
