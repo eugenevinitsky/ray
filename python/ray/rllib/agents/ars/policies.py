@@ -60,12 +60,7 @@ class GenericPolicy(object):
                  preprocessor,
                  observation_filter,
                  action_noise_std,
-                 options={}):
-
-        if len(preprocessor.shape) > 1:
-            raise UnsupportedSpaceException(
-                "Observation space {} is not supported with ARS.".format(
-                    preprocessor.shape))
+                 options):
 
         self.sess = sess
         self.action_space = action_space
@@ -78,9 +73,9 @@ class GenericPolicy(object):
 
         # Policy network.
         dist_class, dist_dim = ModelCatalog.get_action_dist(
-            action_space, dist_type="deterministic")
+            action_space, options, dist_type="deterministic")
 
-        model = ModelCatalog.get_model(self.inputs, dist_dim, options=options)
+        model = ModelCatalog.get_model(self.inputs, dist_dim, options)
         dist = dist_class(model.outputs)
         self.sampler = dist.sample()
 
@@ -116,8 +111,8 @@ class GenericPolicy(object):
 
 class LinearPolicy(GenericPolicy):
     def __init__(self, sess, action_space, preprocessor, observation_filter,
-                 action_noise_std):
-        options = {"custom_model": "LinearNetwork"}
+                 model_options, action_noise_std):
+        model_options.update({"fcnet_hiddens": []})
         GenericPolicy.__init__(
             self,
             sess,
@@ -125,13 +120,13 @@ class LinearPolicy(GenericPolicy):
             preprocessor,
             observation_filter,
             action_noise_std,
-            options=options)
+            options=model_options)
 
 
 class MLPPolicy(GenericPolicy):
     def __init__(self, sess, action_space, preprocessor, observation_filter,
-                 fcnet_hiddens, action_noise_std):
-        options = {"fcnet_hiddens": fcnet_hiddens}
+                 model_options, fcnet_hiddens, action_noise_std):
+        model_options.update({"fcnet_hiddens": fcnet_hiddens})
         GenericPolicy.__init__(
             self,
             sess,
@@ -139,4 +134,4 @@ class MLPPolicy(GenericPolicy):
             preprocessor,
             observation_filter,
             action_noise_std,
-            options=options)
+            model_options)
