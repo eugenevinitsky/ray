@@ -12,7 +12,7 @@ import pickle
 import time
 
 import ray
-from ray.rllib.agents import Agent
+from ray.rllib.agents import Agent, with_common_config
 from ray.tune.trial import Resources
 
 from ray.rllib.agents.es import optimizers
@@ -20,26 +20,29 @@ from ray.rllib.agents.es import policies
 from ray.rllib.agents.es import tabular_logger as tlogger
 from ray.rllib.agents.es import utils
 from ray.rllib.utils import merge_dicts
+from ray.rllib.utils import FilterManager
 
 Result = namedtuple("Result", [
     "noise_indices", "noisy_returns", "sign_noisy_returns", "noisy_lengths",
     "eval_returns", "eval_lengths"
 ])
 
-DEFAULT_CONFIG = {
+DEFAULT_CONFIG = with_common_config({
     "l2_coeff": 0.005,
     "noise_stdev": 0.02,
     "episodes_per_batch": 1000,
-    "timesteps_per_batch": 10000,
+    "train_batch_size": 10000,
     "eval_prob": 0.003,
     "return_proc_mode": "centered_rank",
     "num_workers": 10,
     "stepsize": 0.01,
     "observation_filter": "MeanStdFilter",
     "noise_size": 250000000,
+    "report_length": 5,
     "env": None,
     "env_config": {},
-}
+    "model": {},
+})
 
 
 @ray.remote
@@ -82,7 +85,23 @@ class Worker(object):
         self.sess = utils.make_session(single_threaded=True)
         self.policy = policies.GenericPolicy(
             self.sess, self.env.action_space, self.preprocessor,
-            config["observation_filter"], **policy_params)
+            config["observation_filter"], config["model"], **policy_params)
+
+    @property
+    def filters(self):
+        return {"default": self.policy.get_filter()}
+
+    def sync_filters(self, new_filters):
+        for k in self.filters:
+            self.filters[k].sync(new_filters[k])
+
+    def get_filters(self, flush_after=False):
+        return_filters = {}
+        for k, f in self.filters.items():
+            return_filters[k] = f.as_serializable()
+            if flush_after:
+                f.clear_buffer()
+        return return_filters
 
     def rollout(self, timestep_limit, add_noise=True):
         rollout_rewards, rollout_length = policies.rollout(
@@ -162,8 +181,10 @@ class ESAgent(Agent):
         self.sess = utils.make_session(single_threaded=False)
         self.policy = policies.GenericPolicy(
             self.sess, env.action_space, preprocessor,
-            self.config["observation_filter"], **policy_params)
+            self.config["observation_filter"], self.config["model"],
+            **policy_params)
         self.optimizer = optimizers.Adam(self.policy, self.config["stepsize"])
+        self.report_length = self.config["report_length"]
 
         # Create the shared noise table.
         print("Creating shared noise table.")
@@ -179,6 +200,7 @@ class ESAgent(Agent):
 
         self.episodes_so_far = 0
         self.timesteps_so_far = 0
+        self.reward_list = []
         self.tstart = time.time()
 
     def _collect_results(self, theta_id, min_episodes, min_timesteps):
@@ -199,6 +221,7 @@ class ESAgent(Agent):
                 num_episodes += sum(len(pair) for pair in result.noisy_lengths)
                 num_timesteps += sum(
                     sum(pair) for pair in result.noisy_lengths)
+
         return results, num_episodes, num_timesteps
 
     def _train(self):
@@ -213,8 +236,7 @@ class ESAgent(Agent):
         # Use the actors to do rollouts, note that we pass in the ID of the
         # policy weights.
         results, num_episodes, num_timesteps = self._collect_results(
-            theta_id, config["episodes_per_batch"],
-            config["timesteps_per_batch"])
+            theta_id, config["episodes_per_batch"], config["train_batch_size"])
 
         all_noise_indices = []
         all_training_returns = []
@@ -265,9 +287,16 @@ class ESAgent(Agent):
                                                     config["l2_coeff"] * theta)
         # Set the new weights in the local copy of the policy.
         self.policy.set_weights(theta)
+        # Store the rewards
+        if len(all_eval_returns) > 0:
+            self.reward_list.append(np.mean(eval_returns))
+
+        # Now sync the filters
+        FilterManager.synchronize({
+            "default": self.policy.get_filter()
+        }, self.workers)
 
         step_tend = time.time()
-        tlogger.record_tabular("EvalEpRewMean", eval_returns.mean())
         tlogger.record_tabular("EvalEpRewStd", eval_returns.std())
         tlogger.record_tabular("EvalEpLenMean", eval_lengths.mean())
 
@@ -300,8 +329,9 @@ class ESAgent(Agent):
             "time_elapsed": step_tend - self.tstart
         }
 
+        reward_mean = np.mean(self.reward_list[-self.report_length:])
         result = dict(
-            episode_reward_mean=eval_returns.mean(),
+            episode_reward_mean=reward_mean,
             episode_len_mean=eval_lengths.mean(),
             timesteps_this_iter=noisy_lengths.sum(),
             info=info)
@@ -317,7 +347,10 @@ class ESAgent(Agent):
         checkpoint_path = os.path.join(checkpoint_dir,
                                        "checkpoint-{}".format(self.iteration))
         weights = self.policy.get_weights()
-        objects = [weights, self.episodes_so_far, self.timesteps_so_far]
+        filter = self.policy.get_filter()
+        objects = [
+            weights, self.episodes_so_far, self.timesteps_so_far, filter
+        ]
         pickle.dump(objects, open(checkpoint_path, "wb"))
         return checkpoint_path
 
@@ -326,6 +359,10 @@ class ESAgent(Agent):
         self.policy.set_weights(objects[0])
         self.episodes_so_far = objects[1]
         self.timesteps_so_far = objects[2]
+        self.policy.set_filter(objects[3])
+        FilterManager.synchronize({
+            "default": self.policy.get_filter()
+        }, self.workers)
 
     def compute_action(self, observation):
         return self.policy.compute(observation, update=False)[0]
