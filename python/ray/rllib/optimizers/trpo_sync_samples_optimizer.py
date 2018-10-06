@@ -7,7 +7,7 @@ from ray.rllib.optimizers.sync_samples_optimizer import SyncSamplesOptimizer
 from ray.rllib.evaluation.sample_batch import SampleBatch
 from ray.rllib.utils.filter import RunningStat
 from ray.rllib.utils.timer import TimerStat
-
+import numpy as np
 
 class TRPOSyncSamplesOptimizer(SyncSamplesOptimizer):
     """A simple synchronous RL optimizer.
@@ -47,8 +47,8 @@ class TRPOSyncSamplesOptimizer(SyncSamplesOptimizer):
             self.sample_timer.push_units_processed(samples.count)
 
         with self.grad_timer:
+            final_fetches = None
             for i in range(self.num_sgd_iter):
-                final_fetches = None
                 self.local_evaluator.curr_lr = 1.0
                 weights = ray.put(self.local_evaluator.get_weights())
                 for _ in range(10):
@@ -83,3 +83,37 @@ class TRPOSyncSamplesOptimizer(SyncSamplesOptimizer):
                 "opt_samples": round(self.grad_timer.mean_units_processed, 3),
                 "learner": self.learner_stats,
             })
+
+def cg(f_Ax, b, cg_iters=10, callback=None, verbose=False, residual_tol=1e-10):
+    """
+    Demmel p 312
+    """
+    p = b.copy()
+    r = b.copy()
+    x = np.zeros_like(b)
+    rdotr = r.dot(r)
+
+    fmtstr =  "%10i %10.3g %10.3g"
+    titlestr =  "%10s %10s %10s"
+    if verbose: print(titlestr % ("iter", "residual norm", "soln norm"))
+
+    for i in range(cg_iters):
+        if callback is not None:
+            callback(x)
+        if verbose: print(fmtstr % (i, rdotr, np.linalg.norm(x)))
+        z = f_Ax(p)
+        v = rdotr / p.dot(z)
+        x += v*p
+        r -= v*z
+        newrdotr = r.dot(r)
+        mu = newrdotr/rdotr
+        p = r + mu*p
+
+        rdotr = newrdotr
+        if rdotr < residual_tol:
+            break
+
+    if callback is not None:
+        callback(x)
+    if verbose: print(fmtstr % (i+1, rdotr, np.linalg.norm(x)))  # pylint: disable=W0631
+    return x
