@@ -7,9 +7,8 @@ from __future__ import print_function
 import argparse
 import json
 import os
-import pickle as pkl
-import importlib
-
+import dill
+import pickle
 
 import gym
 import ray
@@ -75,8 +74,8 @@ def run(args, parser):
         with open(config_path) as f:
             args.config = json.load(f)
         config_path = os.path.join(config_dir, "params.pkl")
-        with open(config_path) as f:
-            args.config_pkl = pkl.load(f)
+        with open(config_path, 'rb') as f:
+            args.config_pkl = dill.load(f)
 
     if not args.env:
         if not args.config.get("env"):
@@ -85,16 +84,8 @@ def run(args, parser):
 
     ray.init()
 
-    import ipdb; ipdb.set_trace()
     # convert the policy graph information from a string
-    args.config['multiagent'] =
-    for key, items in multiagent_config.items():
-        temp = []
-        for item in items:
-            temp.append(eval(item))
-            import ipdb;
-            ipdb.set_trace()
-        args.config['multiagent']['policy_graphs'][key] = tuple(temp)
+    args.config['multiagent'] = args.config_pkl['multiagent']
 
     cls = get_agent_class(args.run)
     agent = cls(env=args.env, config=args.config)
@@ -114,11 +105,14 @@ def run(args, parser):
             rollout = []
         state = env.reset()
         done = False
-        reward_total = 0.0
+        reward_total = {}
+        for key in args.config['multiagent']['policy_graphs'].keys():
+            reward_total[key] = []
         while not done and steps < (num_steps or steps + 1):
             action = agent.compute_action(state)
             next_state, reward, done, _ = env.step(action)
-            reward_total += reward
+            for agent_id, reward in reward.items():
+                reward_total[agent_id] += reward
             if not args.no_render:
                 env.render()
             if args.out is not None:
@@ -127,7 +121,9 @@ def run(args, parser):
             state = next_state
         if args.out is not None:
             rollouts.append(rollout)
-        print("Episode reward", reward_total)
+        for key in args.config['multiagent']['policy_graphs'].keys():
+            print("Episode reward of agent {} is {}".format(key,
+                                                            reward_total[key]))
     if args.out is not None:
         pickle.dump(rollouts, open(args.out, "wb"))
 
