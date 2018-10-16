@@ -6,6 +6,7 @@ import csv
 import json
 import logging
 import numpy as np
+import dill
 import os
 import yaml
 
@@ -98,6 +99,10 @@ class _JsonLogger(Logger):
         config_out = os.path.join(self.logdir, "params.json")
         with open(config_out, "w") as f:
             json.dump(self.config, f, sort_keys=True, cls=_SafeFallbackEncoder)
+        config_pkl = os.path.join(self.logdir, "params.pkl")
+        with open(config_pkl, "wb") as f:
+            dill.dump(self.config, f)
+
         local_file = os.path.join(self.logdir, "result.json")
         self.local_out = open(local_file, "w")
 
