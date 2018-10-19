@@ -28,6 +28,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--num-agents", type=int, default=4)
 parser.add_argument("--num-policies", type=int, default=2)
 parser.add_argument("--num-iters", type=int, default=20)
+parser.add_argument("--checkpoint-freq", type=int, default=5)
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -54,12 +55,13 @@ if __name__ == "__main__":
     policy_ids = list(policy_graphs.keys())
 
     run_experiments({
-        "test": {
+        "multiagent_cartpole": {
             "run": "PG",
             "env": "multi_cartpole",
             "stop": {
                 "training_iteration": args.num_iters
             },
+            'checkpoint_freq': args.checkpoint_freq,
             "config": {
                 "multiagent": {
                     "policy_graphs": policy_graphs,

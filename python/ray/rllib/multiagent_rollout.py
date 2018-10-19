@@ -15,6 +15,10 @@ import ray
 from ray.rllib.agents.agent import get_agent_class
 from ray.rllib.agents.dqn.common.wrappers import wrap_dqn
 from ray.rllib.models import ModelCatalog
+from ray.rllib.test.test_multi_agent_env import MultiCartpole
+from ray.tune.registry import register_env
+
+
 
 EXAMPLE_USAGE = """
 Example Usage via RLlib CLI:
@@ -87,6 +91,7 @@ def run(args, parser):
     # convert the policy graph information from a string
     args.config['multiagent'] = args.config_pkl['multiagent']
 
+    register_env("multi_cartpole", lambda _: MultiCartpole(args.num_agents))
     cls = get_agent_class(args.run)
     agent = cls(env=args.env, config=args.config)
     agent.restore(args.checkpoint)
