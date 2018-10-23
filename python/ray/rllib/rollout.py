@@ -80,8 +80,6 @@ def run(args, parser):
 
     ray.init()
 
-    import ipdb; ipdb.set_trace()
-
     cls = get_agent_class(args.run)
     agent = cls(env=args.env, config=args.config)
     agent.restore(args.checkpoint)
