@@ -40,7 +40,6 @@ MODEL_DEFAULTS = {
     "free_log_std": False,
     # Whether to squash the action output to space range
     "squash_to_range": False,
-
     # == LSTM ==
     # Whether to wrap the model with a LSTM
     "use_lstm": False,

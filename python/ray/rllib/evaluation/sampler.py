@@ -286,10 +286,10 @@ def _env_runner(async_vector_env,
                 agent_done = bool(all_done or dones[env_id].get(agent_id))
                 if not agent_done:
                     to_eval[policy_id].append(
-                        PolicyEvalData(env_id, agent_id, filtered_obs,
-                                       episode.rnn_state_for(agent_id),
-                                       episode.last_action_for(agent_id),
-                                       rewards[env_id][agent_id] or 0.0))
+                    PolicyEvalData(env_id, agent_id, filtered_obs,
+                                   episode.rnn_state_for(agent_id),
+                                   episode.last_action_for(agent_id),
+                                   rewards[env_id][agent_id] or 0.0))
 
                 last_observation = episode.last_observation_for(agent_id)
                 episode._set_last_observation(agent_id, filtered_obs)

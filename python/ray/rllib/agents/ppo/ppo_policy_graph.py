@@ -31,7 +31,6 @@ class PPOLoss(object):
                  vf_loss_coeff=1.0,
                  use_gae=True):
         """Constructs the loss for Proximal Policy Objective.
-
         Arguments:
             action_space: Environment observation space specification.
             value_targets (Placeholder): Placeholder for target values; used
